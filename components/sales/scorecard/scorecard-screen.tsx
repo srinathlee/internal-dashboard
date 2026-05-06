@@ -48,6 +48,11 @@ export function ScorecardScreen() {
   };
 
   const options = useMemo(() => buildOptions(period), [period]);
+  const window = resolveWindow(period, selectionKey);
+  const metrics = useMemo(
+    () => (auth.user ? buildScorecard(auth.user, window) : []),
+    [auth.user, window.from, window.to],
+  );
 
   if (!auth.isLoaded) return <ScorecardSkeleton />;
 
@@ -64,11 +69,6 @@ export function ScorecardScreen() {
   }
 
   const user = auth.user;
-  const window = resolveWindow(period, selectionKey);
-  const metrics = useMemo(
-    () => buildScorecard(user, window),
-    [user, window.from, window.to],
-  );
 
   const totalPoints = metrics.reduce((sum, m) => sum + m.rawCount, 0);
   const weightedScore = metrics.reduce((sum, m) => sum + m.score, 0);

@@ -103,6 +103,19 @@ export function FieldLocationScreen() {
     }
   };
 
+  const sortedPins = useMemo(
+    () =>
+      pins
+        .slice()
+        .sort((a, b) => b.timestamp.localeCompare(a.timestamp)),
+    [pins],
+  );
+
+  const filteredPins = useMemo(
+    () => filterPins(sortedPins, filter),
+    [sortedPins, filter],
+  );
+
   if (!auth.isLoaded) return <Skeleton />;
 
   if (!isSalesMember(auth)) {
@@ -155,19 +168,6 @@ export function FieldLocationScreen() {
     setActivePinId(null);
     toast.success("Pin history cleared");
   };
-
-  const sortedPins = useMemo(
-    () =>
-      pins
-        .slice()
-        .sort((a, b) => b.timestamp.localeCompare(a.timestamp)),
-    [pins],
-  );
-
-  const filteredPins = useMemo(
-    () => filterPins(sortedPins, filter),
-    [sortedPins, filter],
-  );
 
   const activePin =
     sortedPins.find((p) => p.id === activePinId) ?? sortedPins[0] ?? null;
