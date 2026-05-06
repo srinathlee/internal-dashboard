@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm view *)",
+      "Bash(npx tsc *)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' -L --max-time 30 http://localhost:3030__TRACKED_VAR__)",
+      "Bash(curl -s \"http://localhost:3030/dashboard\")",
+      "Bash(powershell -Command 'Get-NetTCPConnection -LocalPort 3030 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; '\\\\''done'\\\\''')",
+      "Bash(rm -f /tmp/nyra-dev.log)",
+      "Bash(npx next *)",
+      "Bash(curl *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(npm run *)"
+    ]
+  }
+}
