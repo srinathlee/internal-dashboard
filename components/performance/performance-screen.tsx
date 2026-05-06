@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
-import { isSalesMember } from "@/lib/access";
+import { isSalesAdmin, isSalesMember } from "@/lib/access";
 import {
   aggregateMetricsForKey,
   aggregatePerUser,
@@ -45,6 +46,7 @@ import {
 } from "./export-csv-button";
 import { MembersTable, type MemberRow } from "./members-table";
 import { MemberDailyTable } from "./member-daily-table";
+import { SalesAdminPerformance } from "./sales-admin-performance";
 import { SalesMemberPerformance } from "./sales-member-performance";
 
 const TEAM_HEX: Record<TeamId, string> = {
@@ -64,6 +66,7 @@ const PCT_OF_TARGET_METRIC: MetricDefinition = {
 
 export function PerformanceScreen() {
   const auth = useAuth();
+  const router = useRouter();
   const [range, setRange] = useState<DateRangeKey>("30d");
   const [teamFilter, setTeamFilter] = useState<TeamFilterValue>("all");
 
@@ -76,6 +79,19 @@ export function PerformanceScreen() {
   const canExport = isSuperAdmin
     ? auth.can("performance:export:all")
     : auth.can("performance:export:team", user.teamId ? { teamId: user.teamId } : undefined);
+
+  // Sales admin gets the team-overview surface — KPI tiles, status callouts,
+  // leaderboard, conversion grid, roster, and activity. Hands "Add associate"
+  // off to the existing /team flow so authoring stays in one place.
+  if (isSalesAdmin(auth)) {
+    return (
+      <SalesAdminPerformance
+        user={user}
+        canAddMember={auth.can("user:invite", { teamId: "sales" })}
+        onAddAssociate={() => router.push("/team")}
+      />
+    );
+  }
 
   // Sales member gets a focused, action-oriented working surface — quota,
   // funnel, and recent activity instead of the daily metrics breakdown.

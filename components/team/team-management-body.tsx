@@ -9,6 +9,7 @@ import { useTeamMembers } from "@/lib/hooks/use-team-members";
 import { REFERENCE_DATE } from "@/lib/mock-data";
 import type { Role, Team, User } from "@/lib/types";
 
+import { AddAssociateModal } from "./add-associate-modal";
 import { InviteMemberModal } from "./invite-member-modal";
 import { EditRoleModal } from "./edit-role-modal";
 import { DeactivateConfirmModal } from "./deactivate-confirm-modal";
@@ -64,6 +65,7 @@ export function TeamManagementBody({
   const heading = title ?? `${team.name} team`;
   const desc =
     description ?? `${activeCount} active · ${members.length} total`;
+  const isSales = team.id === "sales";
 
   return (
     <div className="space-y-6">
@@ -76,7 +78,7 @@ export function TeamManagementBody({
             {canInvite && (
               <Button onClick={() => setInviteOpen(true)}>
                 <UserPlus className="h-4 w-4" aria-hidden />
-                Invite member
+                {isSales ? "Add associate" : "Invite member"}
               </Button>
             )}
           </div>
@@ -94,13 +96,22 @@ export function TeamManagementBody({
         nowIso={`${REFERENCE_DATE}T12:00:00.000Z`}
       />
 
-      <InviteMemberModal
-        open={inviteOpen}
-        onOpenChange={setInviteOpen}
-        team={team}
-        assignableRoles={assignableRoles}
-        onInvite={invite}
-      />
+      {isSales ? (
+        <AddAssociateModal
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          team={team}
+          onInvite={invite}
+        />
+      ) : (
+        <InviteMemberModal
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          team={team}
+          assignableRoles={assignableRoles}
+          onInvite={invite}
+        />
+      )}
 
       <EditRoleModal
         open={editingUser !== null}
