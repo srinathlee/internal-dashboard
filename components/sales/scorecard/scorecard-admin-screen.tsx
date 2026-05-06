@@ -13,6 +13,7 @@ import {
   Download,
   HelpCircle,
   History as HistoryIcon,
+  LineChart,
   Pencil,
   Plus,
   RefreshCw,
@@ -93,7 +94,7 @@ import {
   type ScorecardWindow,
 } from "./scorecard-shared";
 
-type AdminTab = "rep" | "rankings" | "metrics" | "manual";
+type AdminTab = "rep" | "rankings";
 
 /**
  * Sales-admin scorecard. Wraps the per-rep scorecard inside admin-level
@@ -103,7 +104,7 @@ type AdminTab = "rep" | "rankings" | "metrics" | "manual";
  */
 export function ScorecardAdminScreen() {
   const auth = useAuth();
-  const [tab, setTab] = useState<AdminTab>("rep");
+  const [tab, setTab] = useState<AdminTab>("rankings");
   const [period, setPeriod] = useState<Period>("month");
   const [selectionKey, setSelectionKey] = useState<string>(() =>
     defaultSelectionFor("month"),
@@ -171,22 +172,20 @@ export function ScorecardAdminScreen() {
         className="space-y-4"
       >
         <Card className="p-3">
-          <TabsList className="grid w-full grid-cols-2 gap-1 sm:grid-cols-4">
-            <TabsTrigger value="rep" className="gap-1.5">
-              <Users className="h-3.5 w-3.5" aria-hidden />
-              Rep performance
-            </TabsTrigger>
-            <TabsTrigger value="rankings" className="gap-1.5">
+          <TabsList className="bg-zinc-50 dark:bg-zinc-900">
+            <TabsTrigger
+              value="rankings"
+              className="gap-1.5 data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-zinc-100 dark:data-[state=active]:text-zinc-900"
+            >
               <Trophy className="h-3.5 w-3.5" aria-hidden />
               Rankings
             </TabsTrigger>
-            <TabsTrigger value="metrics" className="gap-1.5">
-              <Wand2 className="h-3.5 w-3.5" aria-hidden />
-              Metrics & setup
-            </TabsTrigger>
-            <TabsTrigger value="manual" className="gap-1.5">
-              <Coins className="h-3.5 w-3.5" aria-hidden />
-              Manual points
+            <TabsTrigger
+              value="rep"
+              className="gap-1.5 data-[state=active]:bg-zinc-900 data-[state=active]:text-white dark:data-[state=active]:bg-zinc-100 dark:data-[state=active]:text-zinc-900"
+            >
+              <LineChart className="h-3.5 w-3.5" aria-hidden />
+              Performance
             </TabsTrigger>
           </TabsList>
 
@@ -228,14 +227,6 @@ export function ScorecardAdminScreen() {
         <TabsContent value="rankings" className="mt-0">
           <RankingsTab reps={teamScorecards} window={window} period={period} />
         </TabsContent>
-
-        <TabsContent value="metrics" className="mt-0">
-          <MetricsSetupTab />
-        </TabsContent>
-
-        <TabsContent value="manual" className="mt-0">
-          <ManualPointsTab reps={teamScorecards} />
-        </TabsContent>
       </Tabs>
     </div>
   );
@@ -255,9 +246,13 @@ function ScreenTitle() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Sales scorecard</h1>
         <p className="mt-0.5 text-sm text-zinc-500">
-          Choose the reporting period first, then open rep performance,
-          rankings, setup, or manual points. Everything below uses that same
-          time range.
+          Choose the reporting period first, then open rep performance or
+          rankings. Everything below uses that same time range. Scoring
+          rules and manual point awards live under{" "}
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">
+            Metric management
+          </span>{" "}
+          in the sidebar.
         </p>
       </div>
     </div>
@@ -1186,7 +1181,7 @@ const WEIGHT_PALETTE = [
   "bg-teal-500",
 ];
 
-function MetricsSetupTab() {
+export function MetricsSetupTab() {
   const sampleMetrics = useMemo(() => {
     const reps = getTeamMembers("sales").filter((u) => u.role === "member");
     if (reps.length === 0) return [];
@@ -2168,7 +2163,7 @@ const ADJUSTMENT_CATEGORIES: { value: string; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
-function ManualPointsTab({
+export function ManualPointsTab({
   reps,
 }: {
   reps: { user: User; metrics: ScoreRow[]; mrr: number }[];
