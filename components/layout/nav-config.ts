@@ -61,12 +61,12 @@ export const NAV_ITEMS: NavItem[] = [
     label: "Dashboard",
     href: "/dashboard",
     icon: LayoutDashboard,
-    // Sales admins want every sales-context entry inside the Sales Team
-    // section — Dashboard included. Super admin keeps it at the top because
-    // their Dashboard view is org-wide, not team-scoped.
-    group: (a) => (isSalesAdmin(a) ? "salesTeam" : "top"),
-    // Sales members do not see the role-adaptive dashboard.
-    show: (a) => a.can("performance:read:self") && !isSalesMember(a),
+    group: "top",
+    // Sales members and sales admins live inside the Sales Team section —
+    // their per-tab views (Pipeline, Scorecard, etc.) cover the same ground
+    // a generic dashboard would, so the Dashboard entry is hidden for them.
+    show: (a) =>
+      a.can("performance:read:self") && !isSalesMember(a) && !isSalesAdmin(a),
   },
   {
     label: "Performance",

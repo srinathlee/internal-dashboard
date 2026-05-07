@@ -1,6 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
 import { useAuth } from "@/lib/auth";
+import { isSalesAdmin } from "@/lib/access";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/layout/page-header";
 
@@ -18,9 +22,18 @@ import { SuperAdminDashboard } from "./super-admin-dashboard";
  * structures, not to "the same page with extra buttons."
  */
 export function DashboardScreen() {
-  const { user, isLoaded } = useAuth();
+  const auth = useAuth();
+  const router = useRouter();
+  const { user, isLoaded } = auth;
 
-  if (!isLoaded) {
+  // Sales admins no longer have a Dashboard surface — bounce them to the
+  // first sales tab if they hit /dashboard directly via URL or back-button.
+  const shouldRedirectSalesAdmin = isLoaded && isSalesAdmin(auth);
+  useEffect(() => {
+    if (shouldRedirectSalesAdmin) router.replace("/sales/leads");
+  }, [shouldRedirectSalesAdmin, router]);
+
+  if (!isLoaded || shouldRedirectSalesAdmin) {
     return <DashboardSkeleton />;
   }
   if (!user) {
