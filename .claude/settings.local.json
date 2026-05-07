@@ -15,7 +15,8 @@
       "PowerShell(npm run typecheck 2>&1)",
       "PowerShell(npm run lint 2>&1)",
       "Bash(./node_modules/.bin/tsc --noEmit)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(node scripts/extract-logo.mjs)"
     ]
   }
 }

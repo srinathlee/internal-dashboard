@@ -103,63 +103,8 @@ export function LoginScreen() {
               Sign in
             </Button>
           </form>
-
-          <div className="my-6 flex items-center gap-3 text-xs uppercase tracking-wide text-zinc-400">
-            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-            <span>or</span>
-            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            className="h-10 w-full"
-            onClick={() => {
-              setError("Google sign-in is visual only in v1.");
-            }}
-          >
-            <GoogleIcon className="h-4 w-4" />
-            Continue with Google
-          </Button>
         </Card>
-
-        <p className="text-center text-xs text-zinc-500">
-          Tip: any credentials work. Match a known email
-          {" "}
-          <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] dark:bg-zinc-800">
-            priya.sharma@nyra.ai
-          </code>
-          {" "}to sign in as that user.
-        </p>
       </div>
     </main>
-  );
-}
-
-function GoogleIcon({ className }: { className?: string }) {
-  // Inline SVG keeps us free of an external icon dep for one-off marks
-  return (
-    <svg
-      viewBox="0 0 48 48"
-      aria-hidden="true"
-      className={className}
-    >
-      <path
-        fill="#FFC107"
-        d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-11.3 8 12 12 0 1 1 7.6-21.3l5.7-5.7A20 20 0 1 0 24 44a20 20 0 0 0 20-20c0-1.4-.1-2.4-.4-3.5z"
-      />
-      <path
-        fill="#FF3D00"
-        d="m6.3 14.7 6.6 4.8A12 12 0 0 1 24 12a12 12 0 0 1 7.6 2.7l5.7-5.7A20 20 0 0 0 6.3 14.7z"
-      />
-      <path
-        fill="#4CAF50"
-        d="M24 44c5.3 0 10-2 13.5-5.4l-6.2-5.2A12 12 0 0 1 24 36a12 12 0 0 1-11.3-8l-6.6 5A20 20 0 0 0 24 44z"
-      />
-      <path
-        fill="#1976D2"
-        d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-4.1 5.4l6.2 5.2A20 20 0 0 0 44 24c0-1.4-.1-2.4-.4-3.5z"
-      />
-    </svg>
   );
 }

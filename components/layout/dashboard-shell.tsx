@@ -2,12 +2,12 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 
 import { useAuth } from "@/lib/auth";
 import { isSalesMember } from "@/lib/access";
 import { DesktopSidebar } from "./sidebar";
 import { Header } from "./header";
+import { NyraLoader } from "./nyra-loader";
 
 const SALES_MEMBER_HOME = "/hospitals";
 
@@ -57,30 +57,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }, [auth, pathname, router]);
 
   if (!auth.isLoaded || !auth.user) {
-    return (
-      <div
-        className="grid min-h-screen place-items-center bg-background"
-        aria-busy="true"
-      >
-        <Loader2
-          className="h-5 w-5 animate-spin text-zinc-400"
-          aria-label="Loading"
-        />
-      </div>
-    );
+    return <NyraLoader />;
   }
 
   // Sales members briefly land on a disallowed route while the redirect
-  // queue ticks; show the spinner instead of flashing un-permitted content.
+  // queue ticks; show the splash instead of flashing un-permitted content.
   if (isSalesMember(auth) && !isPathAllowedForSalesMember(pathname)) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-background">
-        <Loader2
-          className="h-5 w-5 animate-spin text-zinc-400"
-          aria-label="Loading"
-        />
-      </div>
-    );
+    return <NyraLoader />;
   }
 
   return (
