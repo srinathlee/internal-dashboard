@@ -88,12 +88,33 @@ export function ScorecardAdminScreen() {
   });
   const overview = useTeamOverview();
 
+  // The leaderboard endpoint is documented as "Ranked list of all reps by
+  // points" but the backend has been observed returning rows where rank
+  // doesn't match total_points (e.g. a rep with 21 pts ranked below a rep
+  // with fewer). Re-sort defensively by total_points desc, with weighted
+  // score as the tiebreaker, and recompute rank so the UI is always
+  // consistent with the points it shows. Remove this once the backend is
+  // fixed.
+  //
+  // This must live before any early returns — hooks have to run in the same
+  // order on every render.
+  const reps = useMemo<LeaderboardEntry[]>(() => {
+    const raw = leaderboard.data?.leaderboard ?? [];
+    const sorted = [...raw].sort((a, b) => {
+      if (b.total_points !== a.total_points) {
+        return b.total_points - a.total_points;
+      }
+      return b.total_weighted_score - a.total_weighted_score;
+    });
+    return sorted.map((r, i) => ({ ...r, rank: i + 1 }));
+  }, [leaderboard.data]);
+
   // Default the Performance tab to the top-ranked rep when one is available.
   useEffect(() => {
     if (selectedUserId) return;
-    const top = leaderboard.data?.leaderboard[0];
+    const top = reps[0];
     if (top) setSelectedUserId(top.user_id);
-  }, [leaderboard.data, selectedUserId]);
+  }, [reps, selectedUserId]);
 
   if (!auth.isLoaded) return <Skeleton />;
 
@@ -105,23 +126,6 @@ export function ScorecardAdminScreen() {
     );
   }
 
-  // The leaderboard endpoint is documented as "Ranked list of all reps by
-  // points" but the backend has been observed returning rows where rank
-  // doesn't match total_points (e.g. a rep with 21 pts ranked below a rep
-  // with fewer). Re-sort defensively by total_points desc, with weighted
-  // score as the tiebreaker, and recompute rank so the UI is always
-  // consistent with the points it shows. Remove this once the backend is
-  // fixed.
-  const reps = useMemo<LeaderboardEntry[]>(() => {
-    const raw = leaderboard.data?.leaderboard ?? [];
-    const sorted = [...raw].sort((a, b) => {
-      if (b.total_points !== a.total_points) {
-        return b.total_points - a.total_points;
-      }
-      return b.total_weighted_score - a.total_weighted_score;
-    });
-    return sorted.map((r, i) => ({ ...r, rank: i + 1 }));
-  }, [leaderboard.data]);
   const teamMrr = overview.data?.team_kpis.team_mrr.value ?? null;
   const activeReps = overview.data?.team_kpis.active_reps;
 

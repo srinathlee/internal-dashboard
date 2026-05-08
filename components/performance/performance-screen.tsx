@@ -24,6 +24,8 @@ import { useMyActivity, useMyOverview } from "@/lib/hooks/use-overview";
 import { cn } from "@/lib/utils";
 import type { ActivityItem, MyOverview } from "@/lib/api/types";
 
+import { TeamOverviewScreen } from "./team-overview-screen";
+
 /**
  * /performance — sales member's personal scoreboard.
  *
@@ -57,30 +59,11 @@ export function PerformanceScreen() {
     );
   }
 
-  // Members own this surface. Admins / super admins keep landing here for
-  // sidebar continuity, but they see a placeholder until the team-scoped
-  // view ships.
+  // Sales admins and super admins get the full Team Overview surface —
+  // KPI strip, health cards, leaderboard, conversion table, roster and
+  // activity feed. Members continue below with their personal overview.
   if (auth.user.role !== "member") {
-    return (
-      <div className="space-y-6">
-        <PageHeader
-          title="Performance"
-          description="Trend lines, leaderboards, and target attainment."
-        />
-        <Card className="flex flex-col items-center gap-3 p-12 text-center text-sm text-zinc-500">
-          <TrendingUp className="h-8 w-8 text-zinc-400" aria-hidden />
-          <div>
-            <div className="font-medium text-zinc-700 dark:text-zinc-300">
-              Team-scoped view coming soon.
-            </div>
-            <p className="mt-1 max-w-md">
-              Use the Dashboard for the org / team overview. This page will
-              gain a roster + leaderboard view scoped to the team you manage.
-            </p>
-          </div>
-        </Card>
-      </div>
-    );
+    return <TeamOverviewScreen />;
   }
 
   if (overview.isLoading && !overview.data) return <Skeleton />;
