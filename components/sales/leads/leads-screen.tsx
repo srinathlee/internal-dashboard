@@ -218,6 +218,12 @@ export function LeadsScreen() {
       return;
     }
     try {
+      // Moving OUT of "lost" needs the dedicated /restore endpoint first;
+      // /stage alone won't clear the lost state on the backend, so the
+      // lead stays hidden from the open pipeline buckets.
+      if (lead.stage === "lost") {
+        await mutations.restore(leadId);
+      }
       const updated = await mutations.setStage(leadId, toApiStage(next));
       const adapted = adaptLead(updated);
       setLeads((prev) =>

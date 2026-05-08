@@ -40,6 +40,7 @@ export function PipelineColumn({
 
   return (
     <div
+      data-stage={stage}
       onDragOver={(e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";

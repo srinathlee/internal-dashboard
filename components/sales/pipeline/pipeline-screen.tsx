@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/layout/page-header";
@@ -32,8 +33,11 @@ import type { Lead, LeadLostReason, LeadStage } from "@/lib/types";
 import type { User } from "@/lib/types";
 
 import { LeadDetailSheet } from "../leads/lead-detail-sheet";
+import {
+  NewLeadModal,
+  type NewLeadInput,
+} from "../leads/new-lead-modal";
 import { MarkAsLostModal } from "./mark-as-lost-modal";
-import { NewLeadDropdown } from "./new-lead-dropdown";
 import { PipelineColumn } from "./pipeline-column";
 import { SalesRepFilter } from "./sales-rep-filter";
 
@@ -172,6 +176,90 @@ export function PipelineScreen() {
   const [lostLead, setLostLead] = useState<Lead | null>(null);
   const [lostOpen, setLostOpen] = useState(false);
 
+  const [newLeadOpen, setNewLeadOpen] = useState(false);
+
+  const handleCreateLead = async (input: NewLeadInput) => {
+    try {
+      const created = await mutations.create({
+        clinic_name: input.clinicName,
+        doctor_name: input.doctorName,
+        specialization: input.specialization || undefined,
+        phone: input.phone,
+        city: input.city,
+        area: input.area || undefined,
+        address: input.address || undefined,
+        lead_source: input.source,
+        stage: toApiStage(input.stage),
+        monthly_appointments: input.monthlyAppointments,
+        number_of_branches: input.branches,
+        estimated_value: input.value,
+        notes: input.notes || undefined,
+      });
+      // Prepend optimistically so the new card shows up before the
+      // pipeline refetch completes, then scroll the destination column
+      // into view so the user can see where it landed.
+      const adapted = adaptLead(created);
+      setLeads((prev) => [adapted, ...prev]);
+      void pipelineQuery.refetch();
+      scrollToStage(adapted.stage);
+    } catch (err) {
+      toast.error("Couldn't create lead", {
+        description: errorMessage(err),
+      });
+      throw err;
+    }
+  };
+
+  // Kanban horizontal scroll. The stage row is wider than the viewport on
+  // common screens, and there's no obvious affordance for left/right
+  // scroll — without help the user opens the page already scrolled to a
+  // random position and can't find a lead that landed in an early stage.
+  //
+  // Two behaviors:
+  //   1. On first render with data, scroll to the leftmost stage that
+  //      actually has a lead. Falls back to the very start.
+  //   2. After a stage move, scroll the destination column into view so
+  //      the user can confirm the card landed where they expected.
+  const kanbanRef = useRef<HTMLDivElement | null>(null);
+  const didInitialScroll = useRef(false);
+
+  const scrollToStage = (stage: LeadStage) => {
+    const el = kanbanRef.current?.querySelector<HTMLElement>(
+      `[data-stage="${stage}"]`,
+    );
+    if (!el || !kanbanRef.current) return;
+    const c = kanbanRef.current;
+    const left =
+      el.offsetLeft - (c.clientWidth - el.clientWidth) / 2;
+    c.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    if (didInitialScroll.current) return;
+    if (!pipelineQuery.data) return;
+    const firstWithLeads = KANBAN_STAGE_ORDER.find(
+      (s) => (leadsByStage[s]?.length ?? 0) > 0,
+    );
+    didInitialScroll.current = true;
+    // On first paint we want a hard jump (no animation) so the user
+    // doesn't see a flash of the wrong column.
+    requestAnimationFrame(() => {
+      if (!kanbanRef.current) return;
+      if (!firstWithLeads) {
+        kanbanRef.current.scrollLeft = 0;
+        return;
+      }
+      const el = kanbanRef.current.querySelector<HTMLElement>(
+        `[data-stage="${firstWithLeads}"]`,
+      );
+      if (!el) return;
+      kanbanRef.current.scrollLeft = Math.max(
+        0,
+        el.offsetLeft - 16,
+      );
+    });
+  }, [pipelineQuery.data, leadsByStage]);
+
   if (!auth.isLoaded) return <Skeleton />;
 
   if (!canSeeSalesTabs(auth)) {
@@ -226,18 +314,31 @@ export function PipelineScreen() {
   const persistMove = async (
     leadId: string,
     nextStage: LeadStage,
-    extras?: { lostReason?: LeadLostReason; lostNotes?: string },
+    options: {
+      fromStage?: LeadStage;
+      lostReason?: LeadLostReason;
+      lostNotes?: string;
+    } = {},
   ) => {
     try {
       if (nextStage === "lost") {
-        if (!extras?.lostReason) return;
+        if (!options.lostReason) return;
         await mutations.markLost(leadId, {
-          reason: toApiReason(extras.lostReason),
-          notes: extras.lostNotes,
+          reason: toApiReason(options.lostReason),
+          notes: options.lostNotes,
         });
-      } else {
-        await mutations.setStage(leadId, toApiStage(nextStage));
+        return;
       }
+
+      // Moving OUT of "lost" needs the dedicated /restore endpoint — the
+      // regular /stage endpoint won't take a lead out of the lost state,
+      // so the lead would stay hidden from the open pipeline buckets.
+      // After restoring, set the explicit target stage in case the user
+      // picked something other than the backend's default restore stage.
+      if (options.fromStage === "lost") {
+        await mutations.restore(leadId);
+      }
+      await mutations.setStage(leadId, toApiStage(nextStage));
     } catch (err) {
       toast.error("Stage update failed", { description: errorMessage(err) });
       // Refresh from server to revert optimism.
@@ -258,8 +359,10 @@ export function PipelineScreen() {
       return;
     }
 
+    const fromStage = lead.stage;
     moveLeadOptimistic(id, stage);
-    void persistMove(id, stage);
+    void persistMove(id, stage, { fromStage });
+    scrollToStage(stage);
     toast.success(`Moved to ${LEAD_STAGE_LABEL[stage]}`, {
       description: lead.clinicName,
     });
@@ -270,13 +373,19 @@ export function PipelineScreen() {
     reason: LeadLostReason,
     notes: string,
   ) => {
+    const lead = findLead(leadId);
     moveLeadOptimistic(leadId, "lost", {
       lostReason: reason,
       lostNotes: notes,
     });
-    void persistMove(leadId, "lost", { lostReason: reason, lostNotes: notes });
+    void persistMove(leadId, "lost", {
+      fromStage: lead?.stage,
+      lostReason: reason,
+      lostNotes: notes,
+    });
+    scrollToStage("lost");
     toast.success("Marked as lost", {
-      description: findLead(leadId)?.clinicName ?? undefined,
+      description: lead?.clinicName ?? undefined,
     });
     setLostLead(null);
   };
@@ -286,7 +395,12 @@ export function PipelineScreen() {
       <PageHeader
         title="Sales pipeline"
         description="Drag cards between stages — every move logs to the timeline. Moving to LOST asks for a reason."
-        actions={<NewLeadDropdown />}
+        actions={
+          <Button onClick={() => setNewLeadOpen(true)}>
+            <Plus className="h-4 w-4" aria-hidden />
+            New lead
+          </Button>
+        }
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -371,7 +485,7 @@ export function PipelineScreen() {
         </Card>
       )}
 
-      <div className="-mx-4 overflow-x-auto px-4 pb-4">
+      <div ref={kanbanRef} className="-mx-4 overflow-x-auto px-4 pb-4">
         <div className="flex gap-3">
           {KANBAN_STAGE_ORDER.map((stage) => (
             <PipelineColumn
@@ -402,16 +516,20 @@ export function PipelineScreen() {
           }
         }}
         onChangeStage={(leadId, next) => {
+          const lead = findLead(leadId);
+          if (!lead) return;
           if (next === "lost") {
-            const lead = findLead(leadId);
-            if (lead) {
-              setLostLead(lead);
-              setLostOpen(true);
-            }
+            setLostLead(lead);
+            setLostOpen(true);
             return;
           }
+          // Capture fromStage BEFORE the optimistic move overwrites it —
+          // persistMove uses it to route through the /restore endpoint
+          // when leaving the lost state.
+          const fromStage = lead.stage;
           moveLeadOptimistic(leadId, next);
-          void persistMove(leadId, next);
+          void persistMove(leadId, next, { fromStage });
+          scrollToStage(next);
           toast.success(`Stage updated → ${LEAD_STAGE_LABEL[next]}`);
         }}
         onMutated={() => {
@@ -433,6 +551,12 @@ export function PipelineScreen() {
           }
         }}
         onConfirm={handleConfirmLost}
+      />
+
+      <NewLeadModal
+        open={newLeadOpen}
+        onOpenChange={setNewLeadOpen}
+        onCreate={handleCreateLead}
       />
     </div>
   );
