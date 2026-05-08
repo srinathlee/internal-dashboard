@@ -39,7 +39,7 @@ export function UserMenu() {
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/settings" className="cursor-pointer">
+          <Link href="/profile" className="cursor-pointer">
             <UserIcon className="text-zinc-500" />
             Profile
           </Link>

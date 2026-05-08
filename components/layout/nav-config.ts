@@ -211,4 +211,5 @@ export const PAGE_TITLE_BY_PATH: Record<string, string> = {
   "/teams": "Teams",
   "/audit-log": "Audit log",
   "/settings": "Settings",
+  "/profile": "Profile",
 };

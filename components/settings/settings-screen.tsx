@@ -1,41 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useTheme } from "next-themes";
-import { Loader2, Monitor, Moon, Sun } from "lucide-react";
-import { toast } from "sonner";
+import { ChevronRight, Monitor, Moon, Sun } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/layout/page-header";
 
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import { getInitials, roleLabel, teamDotClass } from "@/lib/format";
-import { errorMessage } from "@/lib/hooks/use-async";
-import { useSalesUserMutations } from "@/lib/hooks/use-sales-users";
-import type { Role, Team } from "@/lib/types";
-
-const TEAM_LABEL: Record<string, string> = {
-  sales: "Sales",
-  onboarding: "Onboarding",
-};
-
-function teamFromId(id: string | null): Team | null {
-  if (!id) return null;
-  return {
-    id: id as Team["id"],
-    name: TEAM_LABEL[id] ?? id,
-    color: id === "sales" ? "blue" : "teal",
-    description: "",
-    metrics: [],
-  };
-}
+import { getInitials, roleLabel } from "@/lib/format";
 
 const NOTIFICATION_PREFS_KEY = "nyra-dashboard:notifications";
 
@@ -53,6 +31,13 @@ const DEFAULT_PREFS: NotificationPrefs = {
   productUpdates: true,
 };
 
+/**
+ * /settings — appearance + notifications.
+ *
+ * Identity (name / email / password) lives at /profile. This screen still
+ * shows a small "signed in as" banner at the top so the user can confirm
+ * the active session without leaving the page.
+ */
 export function SettingsScreen() {
   const auth = useAuth();
   if (!auth.isLoaded) return <SettingsSkeleton />;
@@ -64,29 +49,14 @@ export function SettingsScreen() {
     );
   }
 
-  return <SettingsBody />;
-}
-
-function SettingsBody() {
-  const auth = useAuth();
-  if (!auth.user) return null;
-  const user = auth.user;
-  const team = teamFromId(user.teamId);
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Profile, appearance, and notification preferences."
+        description="Appearance and notification preferences."
       />
 
-      <ProfileSection
-        userId={user.id}
-        userName={user.name}
-        userEmail={user.email}
-        userRole={user.role}
-        team={team}
-      />
+      <SignedInBanner />
 
       <ThemeSection />
 
@@ -96,108 +66,34 @@ function SettingsBody() {
 }
 
 // ---------------------------------------------------------------
-// Profile
+// Signed-in banner
 // ---------------------------------------------------------------
 
-function ProfileSection({
-  userId,
-  userName,
-  userEmail,
-  userRole,
-  team,
-}: {
-  userId: string;
-  userName: string;
-  userEmail: string;
-  userRole: Role;
-  team: Team | null;
-}) {
-  const [name, setName] = useState(userName);
-  const [submitting, setSubmitting] = useState(false);
-  const auth = useAuth();
-  const { updateMyName } = useSalesUserMutations();
-
-  useEffect(() => {
-    setName(userName);
-  }, [userName]);
-
-  const dirty = name.trim() !== userName.trim() && name.trim().length > 0;
-
-  const handleSave = async () => {
-    setSubmitting(true);
-    try {
-      await updateMyName(name.trim());
-      await auth.refreshUser();
-      toast.success("Profile saved");
-    } catch (err) {
-      toast.error("Couldn't save profile", {
-        description: errorMessage(err),
-      });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
+function SignedInBanner() {
+  const { user } = useAuth();
+  if (!user) return null;
   return (
-    <SectionCard
-      title="Profile"
-      description="Personal information visible across the dashboard."
-    >
-      <div className="flex items-start gap-4">
-        <Avatar className="h-12 w-12">
-          <AvatarFallback>{getInitials(userName)}</AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1 space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="profile-name">Name</Label>
-              <Input
-                id="profile-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                autoComplete="name"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="profile-email">Email</Label>
-              <Input
-                id="profile-email"
-                value={userEmail}
-                readOnly
-                aria-readonly
-                className="cursor-not-allowed bg-zinc-50 dark:bg-zinc-900"
-              />
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{roleLabel(userRole)}</Badge>
-            {team && (
-              <span className="inline-flex items-center gap-2 text-xs text-zinc-500">
-                <span
-                  aria-hidden
-                  className={cn("h-1.5 w-1.5 rounded-full", teamDotClass(team.id))}
-                />
-                {team.name}
-              </span>
-            )}
-            <span className="text-xs text-zinc-400" title={userId}>
-              ID: {userId}
-            </span>
-          </div>
+    <Card className="flex items-center gap-3 p-4">
+      <Avatar className="h-10 w-10">
+        <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">
+          Signed in as {user.name}
+        </div>
+        <div className="truncate text-xs text-zinc-500">
+          {roleLabel(user.role)}
+          {user.email ? ` · ${user.email}` : ""}
         </div>
       </div>
-
-      <div className="mt-6 flex items-center justify-end border-t border-zinc-100 pt-4 dark:border-zinc-800">
-        <Button
-          onClick={handleSave}
-          disabled={!dirty || submitting}
-          aria-label="Save profile changes"
-        >
-          {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-          Save changes
-        </Button>
-      </div>
-    </SectionCard>
+      <Link
+        href="/profile"
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+      >
+        Manage profile
+        <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+      </Link>
+    </Card>
   );
 }
 
@@ -380,7 +276,7 @@ function SettingsSkeleton() {
         <div className="h-7 w-48 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800" />
         <div className="h-4 w-72 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800" />
       </div>
-      <Card className="h-44 animate-pulse" />
+      <Card className="h-20 animate-pulse" />
       <Card className="h-32 animate-pulse" />
       <Card className="h-44 animate-pulse" />
     </div>

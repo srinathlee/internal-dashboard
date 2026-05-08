@@ -69,6 +69,32 @@ export function updateMyProfile(name: string): Promise<ApiUser> {
   });
 }
 
+/**
+ * PATCH /api/v1/sales/users/me/password — self-service password change.
+ *
+ * Body: `{ current_password, new_password }`. Backend verifies the current
+ * password before hashing+storing the new one. Response confirms the
+ * change but never echoes a password back.
+ *
+ * Note: this endpoint isn't part of the original SUPER_ADMIN spec — that
+ * one only documents super-admin-driven resets via PATCH /sales/subadmins/:id.
+ * Members and team admins need a way to change their own password without
+ * involving the super admin, so we expose it here. If the backend hasn't
+ * shipped this route yet, the call surfaces a 404 to the user.
+ */
+export function changeMyPassword(input: {
+  current_password: string;
+  new_password: string;
+}): Promise<{ updated: boolean }> {
+  return apiData<{ updated: boolean }>(
+    "/api/v1/sales/users/me/password",
+    {
+      method: "PATCH",
+      body: input,
+    },
+  );
+}
+
 export function updateUserRole(
   userId: string,
   role: ApiUserRole,

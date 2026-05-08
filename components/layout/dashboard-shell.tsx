@@ -20,6 +20,7 @@ const SALES_MEMBER_ALLOWED: ReadonlyArray<string> = [
   "/hospitals",
   "/performance",
   "/settings",
+  "/profile",
   "/sales/", // covers /sales/overview, /sales/leads, etc.
 ];
 

@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 
 import {
+  changeMyPassword,
   getSalesTeamConfig,
   inviteSalesMember,
   listSalesUsers,
@@ -34,6 +35,11 @@ export function useSalesUserMutations() {
     ),
     updateMyName: useCallback(
       (name: string) => updateMyProfile(name),
+      [],
+    ),
+    changeMyPassword: useCallback(
+      (input: { current_password: string; new_password: string }) =>
+        changeMyPassword(input),
       [],
     ),
     setRole: useCallback(
