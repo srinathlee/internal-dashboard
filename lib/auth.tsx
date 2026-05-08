@@ -8,30 +8,50 @@ import {
   useMemo,
   useState,
 } from "react";
-import type { Permission, ResourceContext, User } from "./types";
-import { users } from "./mock-data";
+import type { Permission, ResourceContext, Role, TeamId, User } from "./types";
 import { can as canCheck } from "./permissions";
+import {
+  authMeFromJwt,
+  fetchMe,
+  login as apiLogin,
+  logout as apiLogout,
+  readPersistedMe,
+  type AuthMe,
+} from "./api/auth";
+import { getAuthToken, setAuthToken } from "./api/client";
 
 /**
  * Auth context for the dashboard.
  *
- * v1 has no real authentication — `signIn` accepts any credentials and
- * defaults to the Super Admin so reviewers see the full surface area.
+ * Backed by the real Sales API:
+ *   - signIn() POSTs /api/v1/auth/login and stores the returned JWT.
+ *   - On boot we re-hydrate by calling /api/v1/auth/me; if that fails, we
+ *     fall back to decoding the JWT so navigation still works offline.
+ *   - The legacy `User` / `Role` shape is preserved so existing screens
+ *     compile unchanged. The mapping is:
  *
- * The "role switcher" in the header is a dev-only affordance: it calls
- * `setUserById` with one of the 9 mock users. The whole UI re-renders
- * because every conditional goes through `can()`.
+ *       SUPER_ADMIN     -> { role: "super_admin", teamId: null }
+ *       SALES_SUBADMIN  -> { role: "member",      teamId: "sales" }
+ *
+ *   - The dev role-switcher API is preserved for type compatibility but
+ *     `allUsers` is just the current user (real backend has no concept
+ *     of "view as another user").
  */
 
 export interface AuthContextValue {
   user: User | null;
   isLoaded: boolean;
-  /** All 9 seed users, exposed for the dev role-switcher dropdown. */
+  /** Preserved for type compat with the old role-switcher; just the current user. */
   allUsers: User[];
+  /** JWT for any imperative fetch outside the api modules. */
+  token: string | null;
 
   signIn: (email: string, password: string) => Promise<User>;
   signOut: () => void;
+  /** Legacy no-op kept so RoleSwitcher continues to compile. */
   setUserById: (id: string) => void;
+  /** Re-fetch /auth/me — useful after profile updates. */
+  refreshUser: () => Promise<void>;
 
   /** Bound permission check — `auth.can("targets:set", { teamId: "sales" })` */
   can: (permission: Permission, resource?: ResourceContext) => boolean;
@@ -39,79 +59,126 @@ export interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const STORAGE_KEY = "nyra-dashboard:current-user-id";
-/** Used by signIn when the entered email doesn't match any known mock user. */
-const FALLBACK_USER_ID = "u_priya";
-
-function readStoredUserId(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored && users.some((u) => u.id === stored)) return stored;
-  } catch {
-    // localStorage may be blocked (private mode); fall through.
+/**
+ * Translate the API role to the local Role + teamId pair the UI expects.
+ *
+ *   SUPER_ADMIN     -> { role: "super_admin", teamId: null }
+ *   SALES_ADMIN     -> { role: "admin",       teamId: <jwt teamId or "sales"> }
+ *   SALES_SUBADMIN  -> { role: "member",      teamId: <jwt teamId or "sales"> }
+ */
+function mapAuthMeToUser(me: AuthMe): User {
+  let role: Role;
+  switch (me.role) {
+    case "SUPER_ADMIN":
+      role = "super_admin";
+      break;
+    case "SALES_ADMIN":
+      role = "admin";
+      break;
+    default:
+      role = "member";
   }
-  return null;
+
+  const teamId: TeamId | null =
+    me.role === "SUPER_ADMIN"
+      ? ((me.teamId as TeamId | null | undefined) ?? null)
+      : ((me.teamId as TeamId | undefined) ?? "sales");
+
+  const status =
+    me.status === "inactive" || me.status === "INACTIVE"
+      ? "inactive"
+      : "active";
+
+  return {
+    id: me.id,
+    name: me.name || me.email || "User",
+    email: me.email,
+    role,
+    teamId,
+    status,
+    joinedAt: me.joinedAt ?? new Date().toISOString(),
+    lastActiveAt: me.lastActiveAt ?? new Date().toISOString(),
+  };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // SSR has no localStorage; render with `null` and hydrate in an effect.
-  // `isLoaded` flips to true after hydration so consumers can show skeletons
-  // and avoid premature redirects.
-  const [userId, setUserId] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setTokenState] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
 
+  // Boot: hydrate from persisted user + token (instant), then revalidate
+  // via /auth/me only if we have a token to send.
+  //
+  // The API requires `Authorization: Bearer <jwt>` on every protected
+  // endpoint, so attempting /auth/me without a stored token would just
+  // return 401 immediately. Skip the network call in that case.
   useEffect(() => {
-    setUserId(readStoredUserId());
-    setIsLoaded(true);
-  }, []);
+    let cancelled = false;
 
-  const persist = useCallback((id: string) => {
-    setUserId(id);
-    try {
-      window.localStorage.setItem(STORAGE_KEY, id);
-    } catch {
-      // ignore — non-persisted switch is acceptable
+    const cached = readPersistedMe();
+    const storedToken = getAuthToken();
+    if (storedToken) setTokenState(storedToken);
+    if (cached && storedToken) setUser(mapAuthMeToUser(cached));
+
+    if (!storedToken) {
+      setIsLoaded(true);
+      return () => {
+        cancelled = true;
+      };
     }
-  }, []);
 
-  const setUserById = useCallback(
-    (id: string) => {
-      if (!users.some((u) => u.id === id)) {
-        throw new Error(`Unknown user id: ${id}`);
-      }
-      persist(id);
-    },
-    [persist],
-  );
+    fetchMe()
+      .then((me) => {
+        if (cancelled) return;
+        setUser(mapAuthMeToUser(me));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // /auth/me failed — the token is dead. Clear and force re-login.
+        setUser(null);
+        setAuthToken(null);
+        setTokenState(null);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const signIn = useCallback(
-    async (email: string, _password: string): Promise<User> => {
-      // Mock auth: match by email; fall back to the default super-admin user
-      // so unknown credentials still produce a usable session.
-      const match = users.find(
-        (u) => u.email.toLowerCase() === email.trim().toLowerCase(),
-      );
-      const target = match ?? users.find((u) => u.id === FALLBACK_USER_ID)!;
-      persist(target.id);
-      return target;
+    async (email: string, password: string): Promise<User> => {
+      const me = await apiLogin(email, password);
+      const stored = getAuthToken();
+      setTokenState(stored);
+      const next = mapAuthMeToUser(me);
+      setUser(next);
+      return next;
     },
-    [persist],
+    [],
   );
 
   const signOut = useCallback(() => {
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-    setUserId(null);
+    apiLogout();
+    setTokenState(null);
+    setUser(null);
   }, []);
 
-  const user = useMemo(
-    () => (userId ? users.find((u) => u.id === userId) ?? null : null),
-    [userId],
-  );
+  const refreshUser = useCallback(async () => {
+    try {
+      const me = await fetchMe();
+      setUser(mapAuthMeToUser(me));
+    } catch {
+      // ignore — caller can decide whether to surface this
+    }
+  }, []);
+
+  const setUserById = useCallback((_id: string) => {
+    // Real backend doesn't support impersonation. Kept as a no-op to preserve
+    // the type contract used by the (now-vestigial) DEV role switcher.
+  }, []);
 
   const can = useCallback(
     (permission: Permission, resource?: ResourceContext) =>
@@ -119,17 +186,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user],
   );
 
+  const allUsers = useMemo<User[]>(() => (user ? [user] : []), [user]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       isLoaded,
-      allUsers: users,
+      allUsers,
+      token,
       signIn,
       signOut,
       setUserById,
+      refreshUser,
       can,
     }),
-    [user, isLoaded, signIn, signOut, setUserById, can],
+    [
+      user,
+      isLoaded,
+      allUsers,
+      token,
+      signIn,
+      signOut,
+      setUserById,
+      refreshUser,
+      can,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

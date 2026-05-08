@@ -7,8 +7,12 @@ import { ChevronDown, ChevronsLeft, ChevronsRight } from "lucide-react";
 
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import { getInitials, roleLabel, teamDotClass } from "@/lib/format";
-import { getTeam } from "@/lib/mock-data";
+import {
+  getInitials,
+  roleLabel,
+  teamDisplayName,
+  teamDotClass,
+} from "@/lib/format";
 import {
   Tooltip,
   TooltipContent,
@@ -122,7 +126,7 @@ function SidebarBody({
   const pathname = usePathname();
   const items = NAV_ITEMS.filter((item) => item.show(auth));
   const user = auth.user;
-  const team = user?.teamId ? getTeam(user.teamId) : null;
+  const teamLabel = user?.teamId ? teamDisplayName(user.teamId) : null;
   const [collapsedGroups, toggleGroup] = useCollapsedGroups();
 
   /**
@@ -287,14 +291,17 @@ function SidebarBody({
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{user.name}</div>
                   <div className="mt-0.5 flex items-center gap-1.5">
-                    {team && (
+                    {user.teamId && (
                       <span
                         aria-hidden
-                        className={cn("h-1.5 w-1.5 rounded-full", teamDotClass(team.id))}
+                        className={cn(
+                          "h-1.5 w-1.5 rounded-full",
+                          teamDotClass(user.teamId),
+                        )}
                       />
                     )}
                     <span className="truncate text-xs text-zinc-500">
-                      {team ? team.name : roleLabel(user.role)}
+                      {teamLabel ?? roleLabel(user.role)}
                     </span>
                   </div>
                 </div>

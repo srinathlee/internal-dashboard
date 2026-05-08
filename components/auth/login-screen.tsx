@@ -39,9 +39,13 @@ export function LoginScreen() {
       await auth.signIn(email, password);
       router.replace("/dashboard");
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Sign in failed. Try again.",
-      );
+      // Surface the backend's message verbatim — login errors are usually
+      // "Invalid credentials" or rate-limit messages users need to see.
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Sign in failed. Check your network and try again.";
+      setError(message);
       setSubmitting(false);
     }
   };

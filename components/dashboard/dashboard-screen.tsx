@@ -4,36 +4,33 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/lib/auth";
-import { isSalesAdmin } from "@/lib/access";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/layout/page-header";
 
 import { MemberDashboard } from "./member-dashboard";
-import { AdminDashboard } from "./admin-dashboard";
 import { SuperAdminDashboard } from "./super-admin-dashboard";
 
 /**
- * Picks the right role-adaptive dashboard.
+ * Picks the role-adaptive dashboard.
  *
- * The selection uses the user's role directly here — but only here. Every
- * downstream conditional (sidebar, buttons, action visibility) goes through
- * `can()`. We treat the dashboard variant as a *layout* concern, not a
- * permissions one — three roles map to three fundamentally different page
- * structures, not to "the same page with extra buttons."
+ *   super_admin -> SuperAdminDashboard (org overview)
+ *   admin       -> redirected to /sales/leads (sales admins live in the
+ *                  sales tabs; no separate dashboard surface)
+ *   member      -> MemberDashboard (personal overview)
  */
 export function DashboardScreen() {
   const auth = useAuth();
   const router = useRouter();
   const { user, isLoaded } = auth;
 
-  // Sales admins no longer have a Dashboard surface — bounce them to the
-  // first sales tab if they hit /dashboard directly via URL or back-button.
-  const shouldRedirectSalesAdmin = isLoaded && isSalesAdmin(auth);
+  // Team admins (currently only sales admin) don't have a dashboard view;
+  // bounce them to their primary surface.
+  const shouldRedirectAdmin = isLoaded && user?.role === "admin";
   useEffect(() => {
-    if (shouldRedirectSalesAdmin) router.replace("/sales/leads");
-  }, [shouldRedirectSalesAdmin, router]);
+    if (shouldRedirectAdmin) router.replace("/sales/leads");
+  }, [shouldRedirectAdmin, router]);
 
-  if (!isLoaded || shouldRedirectSalesAdmin) {
+  if (!isLoaded || shouldRedirectAdmin) {
     return <DashboardSkeleton />;
   }
   if (!user) {
@@ -51,7 +48,9 @@ export function DashboardScreen() {
     case "super_admin":
       return <SuperAdminDashboard />;
     case "admin":
-      return <AdminDashboard user={user} />;
+      // Unreachable — useEffect above redirects. Render the skeleton in the
+      // brief window before the redirect lands.
+      return <DashboardSkeleton />;
     case "member":
       return <MemberDashboard user={user} />;
   }

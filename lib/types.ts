@@ -184,6 +184,8 @@ export interface LeadTimelineEvent {
   id: string;
   /** ID of the user who logged the event. */
   actorId: string;
+  /** Display name of the user who logged the event, when supplied by the API. */
+  actorName?: string;
   /** ISO timestamp. */
   timestamp: string;
   type: LeadActivityType;
@@ -223,6 +225,8 @@ export interface Lead {
   notes: string;
   /** ID of the sales rep responsible for this lead. */
   ownerId: string;
+  /** Display name of the sales rep, when supplied by the API. */
+  ownerName?: string;
   /** ISO timestamp of the most recent activity on this lead. */
   lastActivityAt: string;
   /** Free-form description of the next planned action, or null. */

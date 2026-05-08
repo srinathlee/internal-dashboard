@@ -1,16 +1,15 @@
-import { notFound } from "next/navigation";
-
 import { TeamDetailScreen } from "@/components/teams/team-detail-screen";
-import { teams } from "@/lib/mock-data";
-import type { TeamId } from "@/lib/types";
 
 interface TeamDetailPageProps {
   params: { teamId: string };
 }
 
-const VALID_TEAM_IDS = new Set<string>(teams.map((t) => t.id));
-
+/**
+ * Dynamic team route. Validation that the team actually exists is
+ * deferred to the API call inside TeamDetailScreen — surfacing a 404
+ * from the backend is more accurate than hard-coding a static list of
+ * valid team IDs against the old mock data.
+ */
 export default function TeamDetailPage({ params }: TeamDetailPageProps) {
-  if (!VALID_TEAM_IDS.has(params.teamId)) notFound();
-  return <TeamDetailScreen teamId={params.teamId as TeamId} />;
+  return <TeamDetailScreen teamId={params.teamId} />;
 }

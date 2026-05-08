@@ -2,15 +2,10 @@
 
 import { Building2, Phone } from "lucide-react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { getInitials } from "@/lib/format";
 import { formatCurrency, timeAgo } from "@/lib/format-metric";
-import { REFERENCE_DATE, getUser } from "@/lib/mock-data";
 import { STAGE_PROBABILITY } from "@/lib/sales-pipeline";
 import type { Lead } from "@/lib/types";
-
-const NOW_ISO = `${REFERENCE_DATE}T12:00:00.000Z`;
 
 interface PipelineCardProps {
   lead: Lead;
@@ -34,7 +29,6 @@ export function PipelineCard({
   onDragEnd,
   onClick,
 }: PipelineCardProps) {
-  const owner = getUser(lead.ownerId);
   const weighted = Math.round(lead.value * STAGE_PROBABILITY[lead.stage]);
   const displayValue = forecastMode ? weighted : lead.value;
 
@@ -87,14 +81,7 @@ export function PipelineCard({
           <span className="font-mono">{lead.phone}</span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {owner ? (
-            <Avatar className="h-5 w-5">
-              <AvatarFallback className="text-[9px]">
-                {getInitials(owner.name)}
-              </AvatarFallback>
-            </Avatar>
-          ) : null}
-          <span>{timeAgo(lead.lastActivityAt, NOW_ISO)}</span>
+          <span>{timeAgo(lead.lastActivityAt, new Date().toISOString())}</span>
         </div>
       </div>
     </div>

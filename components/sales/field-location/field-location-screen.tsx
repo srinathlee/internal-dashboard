@@ -25,8 +25,13 @@ import {
 } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
-import { isSalesMember } from "@/lib/access";
+import { canSeeSalesTabs } from "@/lib/access";
 import { cn } from "@/lib/utils";
+import { errorMessage } from "@/lib/hooks/use-async";
+import {
+  useFieldPinMutations,
+  useFieldPins,
+} from "@/lib/hooks/use-field-pins";
 
 interface Pin {
   id: string;
@@ -41,8 +46,6 @@ type LocationStatus = "idle" | "requesting" | "granted" | "denied" | "unavailabl
 // related to the rest of the app instead of dropping the rep on a random
 // continent.
 const DEFAULT_CENTER: { lat: number; lng: number } = { lat: 17.4399, lng: 78.3489 };
-
-const STORAGE_KEY_PREFIX = "nyra-dashboard:field-pins:";
 
 type HistoryFilter = "all" | "today" | "yesterday" | "this-week" | "this-month";
 
@@ -66,42 +69,21 @@ const HISTORY_FILTERS: { key: HistoryFilter; label: string }[] = [
  */
 export function FieldLocationScreen() {
   const auth = useAuth();
-  const [pins, setPins] = useState<Pin[]>([]);
-  const [hydrated, setHydrated] = useState(false);
   const [status, setStatus] = useState<LocationStatus>("idle");
   const [activePinId, setActivePinId] = useState<string | null>(null);
   const [filter, setFilter] = useState<HistoryFilter>("all");
 
-  const userId = auth.user?.id ?? null;
-  const storageKey = userId ? STORAGE_KEY_PREFIX + userId : null;
+  const pinsQuery = useFieldPins();
+  const { drop, clearAll } = useFieldPinMutations();
 
-  // Load pins from localStorage once we know which user we're rendering for.
-  useEffect(() => {
-    if (!storageKey) return;
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Pin[];
-        if (Array.isArray(parsed)) {
-          setPins(parsed);
-          setActivePinId(parsed[0]?.id ?? null);
-        }
-      }
-    } catch {
-      // localStorage may be blocked; leave pins empty.
-    }
-    setHydrated(true);
-  }, [storageKey]);
-
-  const persist = (next: Pin[]) => {
-    setPins(next);
-    if (!storageKey) return;
-    try {
-      window.localStorage.setItem(storageKey, JSON.stringify(next));
-    } catch {
-      // ignore — non-persistent capture is acceptable
-    }
-  };
+  const pins = useMemo<Pin[]>(() => {
+    return (pinsQuery.data ?? []).map((p) => ({
+      id: p.id,
+      lat: p.latitude,
+      lng: p.longitude,
+      timestamp: p.captured_at,
+    }));
+  }, [pinsQuery.data]);
 
   const sortedPins = useMemo(
     () =>
@@ -111,6 +93,13 @@ export function FieldLocationScreen() {
     [pins],
   );
 
+  // Default the active pin to the most recent.
+  useEffect(() => {
+    if (!activePinId && sortedPins.length > 0) {
+      setActivePinId(sortedPins[0]!.id);
+    }
+  }, [activePinId, sortedPins]);
+
   const filteredPins = useMemo(
     () => filterPins(sortedPins, filter),
     [sortedPins, filter],
@@ -118,13 +107,12 @@ export function FieldLocationScreen() {
 
   if (!auth.isLoaded) return <Skeleton />;
 
-  if (!isSalesMember(auth)) {
+  if (!canSeeSalesTabs(auth)) {
     return (
       <div className="space-y-6">
         <PageHeader title="Field location" />
         <Card className="p-12 text-center text-sm text-zinc-500">
-          Field location is for individual sales reps. Admins and super-admins
-          should use the Performance views to track team movement.
+          You don't have permission to view field location.
         </Card>
       </div>
     );
@@ -138,18 +126,22 @@ export function FieldLocationScreen() {
     }
     setStatus("requesting");
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const pin: Pin = {
-          id: `pin_${Date.now()}`,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          timestamp: new Date().toISOString(),
-        };
-        const next = [pin, ...pins];
-        persist(next);
-        setActivePinId(pin.id);
-        setStatus("granted");
-        toast.success("Location pinned");
+      async (pos) => {
+        try {
+          const pin = await drop({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+          setActivePinId(pin.id);
+          setStatus("granted");
+          toast.success("Location pinned");
+          void pinsQuery.refetch();
+        } catch (err) {
+          setStatus("unavailable");
+          toast.error("Couldn't save your pin", {
+            description: errorMessage(err),
+          });
+        }
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
@@ -163,11 +155,18 @@ export function FieldLocationScreen() {
     );
   };
 
-  const handleClear = () => {
-    persist([]);
-    setActivePinId(null);
-    toast.success("Pin history cleared");
+  const handleClear = async () => {
+    try {
+      await clearAll();
+      setActivePinId(null);
+      toast.success("Pin history cleared");
+      void pinsQuery.refetch();
+    } catch (err) {
+      toast.error("Couldn't clear pins", { description: errorMessage(err) });
+    }
   };
+
+  const hydrated = !pinsQuery.isLoading;
 
   const activePin =
     sortedPins.find((p) => p.id === activePinId) ?? sortedPins[0] ?? null;

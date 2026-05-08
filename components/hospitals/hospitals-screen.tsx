@@ -14,7 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
-import { hospitals, users } from "@/lib/mock-data";
+import { errorMessage } from "@/lib/hooks/use-async";
+import { useHospitals } from "@/lib/hooks/use-hospitals";
 
 import { HospitalCard } from "./hospital-card";
 
@@ -24,39 +25,44 @@ const SORTS: { value: SortKey; label: string }[] = [
   { value: "name-asc", label: "Name (A → Z)" },
   { value: "name-desc", label: "Name (Z → A)" },
   { value: "branches-desc", label: "Most branches" },
-  { value: "users-desc", label: "Most users" },
+  { value: "users-desc", label: "Most appointments" },
 ];
 
 const ALL_CITY = "__all__";
 
+/**
+ * "All hospitals" is the rep's clinic directory.
+ *
+ * Backed by GET /api/v1/sales/hospitals (spec §8). Sorting is done
+ * client-side after we have the rows so the dropdown can flip without an
+ * extra round-trip; search and city filtering are sent server-side via
+ * the query params.
+ */
 export function HospitalsScreen() {
   const auth = useAuth();
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("name-asc");
   const [city, setCity] = useState<string>(ALL_CITY);
 
-  // Build the city list from the data so adding hospitals from other cities
-  // automatically extends the filter dropdown.
+  const hospitalsQuery = useHospitals({
+    q: search.trim() || undefined,
+    city: city === ALL_CITY ? undefined : city,
+    limit: 100,
+  });
+
+  const hospitals = hospitalsQuery.data?.hospitals ?? [];
+
   const cities = useMemo(
-    () => Array.from(new Set(hospitals.map((h) => h.city))).sort(),
-    [],
+    () =>
+      Array.from(new Set(hospitals.map((h) => h.city).filter(Boolean))).sort(),
+    [hospitals],
   );
 
-  const userById = useMemo(() => new Map(users.map((u) => [u.id, u])), []);
-
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
     let list = hospitals.filter((h) => {
       if (city !== ALL_CITY && h.city !== city) return false;
-      if (!q) return true;
-      return (
-        h.name.toLowerCase().includes(q) ||
-        h.address.toLowerCase().includes(q) ||
-        h.city.toLowerCase().includes(q) ||
-        h.nyraAiNumber.includes(q)
-      );
+      return true;
     });
-
     list = [...list].sort((a, b) => {
       switch (sort) {
         case "name-asc":
@@ -69,9 +75,8 @@ export function HospitalsScreen() {
           return b.userCount - a.userCount;
       }
     });
-
     return list;
-  }, [search, city, sort]);
+  }, [hospitals, city, sort]);
 
   if (!auth.isLoaded) return <Skeleton />;
 
@@ -101,14 +106,17 @@ export function HospitalsScreen() {
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, address, city, or NYRA AI number…"
+              placeholder="Search by name, address, city, or phone…"
               className="h-10 pl-9"
               aria-label="Search hospitals"
             />
           </div>
 
           <Select value={city} onValueChange={setCity}>
-            <SelectTrigger className="h-10 w-full sm:w-[10rem]" aria-label="Filter by city">
+            <SelectTrigger
+              className="h-10 w-full sm:w-[10rem]"
+              aria-label="Filter by city"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -122,7 +130,10 @@ export function HospitalsScreen() {
           </Select>
 
           <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-            <SelectTrigger className="h-10 w-full sm:w-[12rem]" aria-label="Sort hospitals">
+            <SelectTrigger
+              className="h-10 w-full sm:w-[12rem]"
+              aria-label="Sort hospitals"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -136,7 +147,13 @@ export function HospitalsScreen() {
         </div>
       </Card>
 
-      {filtered.length === 0 ? (
+      {hospitalsQuery.error ? (
+        <Card className="border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
+          Couldn't load hospitals: {errorMessage(hospitalsQuery.error)}
+        </Card>
+      ) : hospitalsQuery.isLoading && filtered.length === 0 ? (
+        <Skeleton inline />
+      ) : filtered.length === 0 ? (
         <Card className="p-12 text-center text-sm text-zinc-500">
           {search || city !== ALL_CITY
             ? "No hospitals match the current filters."
@@ -145,13 +162,7 @@ export function HospitalsScreen() {
       ) : (
         <div className="space-y-3">
           {filtered.map((h) => (
-            <HospitalCard
-              key={h.id}
-              hospital={h}
-              creator={
-                h.createdById ? userById.get(h.createdById) ?? undefined : undefined
-              }
-            />
+            <HospitalCard key={h.id} hospital={h} />
           ))}
         </div>
       )}
@@ -159,14 +170,18 @@ export function HospitalsScreen() {
   );
 }
 
-function Skeleton() {
+function Skeleton({ inline = false }: { inline?: boolean } = {}) {
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <div className="h-7 w-48 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800" />
-        <div className="h-4 w-72 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800" />
-      </div>
-      <Card className="h-16 animate-pulse" />
+    <div className={inline ? "space-y-3" : "space-y-6"}>
+      {!inline && (
+        <>
+          <div className="space-y-2">
+            <div className="h-7 w-48 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800" />
+            <div className="h-4 w-72 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800" />
+          </div>
+          <Card className="h-16 animate-pulse" />
+        </>
+      )}
       {Array.from({ length: 4 }).map((_, i) => (
         <Card key={i} className="h-24 animate-pulse" />
       ))}

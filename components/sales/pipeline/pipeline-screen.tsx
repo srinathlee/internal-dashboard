@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { toast } from "sonner";
 
@@ -14,15 +14,21 @@ import {
   isSalesMember,
 } from "@/lib/access";
 import { formatCurrency } from "@/lib/format-metric";
-import { users } from "@/lib/mock-data";
-import { leads as seedLeads, LEAD_STAGE_LABEL } from "@/lib/sales-leads-data";
+import { LEAD_STAGE_LABEL } from "@/lib/sales-leads-data";
 import {
   KANBAN_STAGE_ORDER,
   isOpenStage,
-  summarizePipeline,
 } from "@/lib/sales-pipeline";
 import { cn } from "@/lib/utils";
+import {
+  adaptLead,
+  toApiReason,
+  toApiStage,
+} from "@/lib/api/adapters";
+import { useLeadMutations, useLeadPeople, usePipeline } from "@/lib/hooks/use-leads";
+import { errorMessage } from "@/lib/hooks/use-async";
 import type { Lead, LeadLostReason, LeadStage } from "@/lib/types";
+import type { User } from "@/lib/types";
 
 import { LeadDetailSheet } from "../leads/lead-detail-sheet";
 import { MarkAsLostModal } from "./mark-as-lost-modal";
@@ -32,42 +38,50 @@ import { SalesRepFilter } from "./sales-rep-filter";
 
 type ActiveFilter = "all" | "active" | "slow";
 
-// "Slow" = open lead with no activity for 7+ days. Tuned to the seed data so
-// at least one card surfaces; revisit when real activity volume is higher.
 const SLOW_THRESHOLD_DAYS = 7;
-const NOW_MS = Date.parse("2026-05-05T12:00:00.000Z");
 
 export function PipelineScreen() {
   const auth = useAuth();
-  const [leads, setLeads] = useState<Lead[]>(seedLeads);
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>("all");
   const [withNextAction, setWithNextAction] = useState(false);
   const [forecastMode, setForecastMode] = useState(false);
   const [selectedReps, setSelectedReps] = useState<string[]>([]);
 
-  // Detail sheet
-  const [openLeadId, setOpenLeadId] = useState<string | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-
-  // Drag state
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-
-  // Mark-as-lost flow
-  const [lostLead, setLostLead] = useState<Lead | null>(null);
-  const [lostOpen, setLostOpen] = useState(false);
-
   const member = isSalesMember(auth);
   const adminLike = isSalesAdminOrSuperAdmin(auth);
 
-  // Sales reps available in the rep filter (admins/super-admins only).
-  const allReps = useMemo(
-    () => users.filter((u) => u.teamId === "sales" && u.role === "member"),
-    [],
-  );
+  const pipelineQuery = usePipeline({
+    q: search.trim() || undefined,
+    recency: activeFilter === "slow" ? "stale" : undefined,
+    with_next_action: withNextAction || undefined,
+  });
+  const peopleQuery = useLeadPeople();
+  const mutations = useLeadMutations();
 
-  // Sales members only ever see their own leads. The rep filter is hidden
-  // for them, so we shortcut by ownerId.
+  // Local mirror so optimistic stage moves render instantly. Re-seeded on
+  // every successful pipeline fetch.
+  const [leads, setLeads] = useState<Lead[]>([]);
+  useEffect(() => {
+    if (!pipelineQuery.data) return;
+    const flat = pipelineQuery.data.stages.flatMap((s) => s.leads);
+    setLeads(flat.map((l) => adaptLead(l)));
+  }, [pipelineQuery.data]);
+
+  const allReps = useMemo<User[]>(() => {
+    if (!peopleQuery.data) return [];
+    return peopleQuery.data.map((p) => ({
+      id: p.id,
+      name: p.name,
+      email: "",
+      role: "member",
+      teamId: "sales",
+      status: "active",
+      joinedAt: "",
+      lastActiveAt: "",
+    }));
+  }, [peopleQuery.data]);
+
   const ownerScopedLeads = useMemo(() => {
     if (member && auth.user) {
       return leads.filter((l) => l.ownerId === auth.user!.id);
@@ -75,8 +89,6 @@ export function PipelineScreen() {
     return leads;
   }, [leads, member, auth.user]);
 
-  // Per-rep counts feed the rep-filter popover. Computed before the rep
-  // filter is applied so the totals stay stable as the user toggles reps.
   const repCountsById = useMemo(() => {
     const out: Record<string, number> = {};
     for (const lead of ownerScopedLeads) {
@@ -86,35 +98,41 @@ export function PipelineScreen() {
   }, [ownerScopedLeads]);
 
   const visibleLeads = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return ownerScopedLeads.filter((l) => {
-      if (adminLike && selectedReps.length > 0 && !selectedReps.includes(l.ownerId)) {
+      if (
+        adminLike &&
+        selectedReps.length > 0 &&
+        !selectedReps.includes(l.ownerId)
+      )
         return false;
-      }
       if (activeFilter === "active" && !isOpenStage(l.stage)) return false;
       if (activeFilter === "slow") {
         if (!isOpenStage(l.stage)) return false;
-        const ageDays = (NOW_MS - Date.parse(l.lastActivityAt)) / 86_400_000;
+        const ageDays =
+          (Date.now() - Date.parse(l.lastActivityAt)) / 86_400_000;
         if (ageDays < SLOW_THRESHOLD_DAYS) return false;
-      }
-      if (withNextAction && !l.nextAction) return false;
-      if (q) {
-        const hay =
-          `${l.clinicName} ${l.doctorName} ${l.phone} ${l.city}`.toLowerCase();
-        if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [
-    ownerScopedLeads,
-    adminLike,
-    selectedReps,
-    activeFilter,
-    withNextAction,
-    search,
-  ]);
+  }, [ownerScopedLeads, adminLike, selectedReps, activeFilter]);
 
-  const summary = useMemo(() => summarizePipeline(visibleLeads), [visibleLeads]);
+  const summary = useMemo(() => {
+    const m = pipelineQuery.data?.metrics;
+    return {
+      openValue: m?.open_pipeline_value ?? 0,
+      openCount: m?.active_lead_count ?? 0,
+      weightedForecast: m?.weighted_forecast_value ?? 0,
+      closedWonValue: m?.closed_won_value ?? 0,
+      closedWonCount: m?.won_count ?? 0,
+      lostCount: m?.lost_count ?? 0,
+      winRatePct:
+        (m?.won_count ?? 0) + (m?.lost_count ?? 0) === 0
+          ? null
+          : ((m?.won_count ?? 0) /
+              ((m?.won_count ?? 0) + (m?.lost_count ?? 0))) *
+            100,
+    };
+  }, [pipelineQuery.data]);
 
   const leadsByStage = useMemo(() => {
     const groups: Record<LeadStage, Lead[]> = {
@@ -134,6 +152,15 @@ export function PipelineScreen() {
 
   const findLead = (id: string) => leads.find((l) => l.id === id) ?? null;
 
+  // Detail sheet
+  const [openLeadId, setOpenLeadId] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  const [lostLead, setLostLead] = useState<Lead | null>(null);
+  const [lostOpen, setLostOpen] = useState(false);
+
   if (!auth.isLoaded) return <Skeleton />;
 
   if (!canSeeSalesTabs(auth)) {
@@ -147,7 +174,7 @@ export function PipelineScreen() {
     );
   }
 
-  const moveLead = (
+  const moveLeadOptimistic = (
     leadId: string,
     nextStage: LeadStage,
     extras?: { lostReason?: LeadLostReason; lostNotes?: string },
@@ -157,7 +184,6 @@ export function PipelineScreen() {
       if (idx === -1) return prev;
       const lead = prev[idx]!;
       if (lead.stage === nextStage && !extras) return prev;
-
       const now = new Date().toISOString();
       const event = {
         id: `${leadId}_t${Date.now()}`,
@@ -166,18 +192,7 @@ export function PipelineScreen() {
         type: "stage-change" as const,
         fromStage: lead.stage,
         toStage: nextStage,
-        ...(extras?.lostReason || extras?.lostNotes
-          ? {
-              content: [
-                extras?.lostReason ? `Lost reason: ${extras.lostReason}` : null,
-                extras?.lostNotes ? extras.lostNotes : null,
-              ]
-                .filter(Boolean)
-                .join(" — "),
-            }
-          : {}),
       };
-
       const next: Lead = {
         ...lead,
         stage: nextStage,
@@ -188,15 +203,34 @@ export function PipelineScreen() {
               lostReason: extras?.lostReason ?? lead.lostReason,
               lostNotes: extras?.lostNotes ?? lead.lostNotes,
             }
-          : {
-              lostReason: undefined,
-              lostNotes: undefined,
-            }),
+          : { lostReason: undefined, lostNotes: undefined }),
       };
       const copy = [...prev];
       copy[idx] = next;
       return copy;
     });
+  };
+
+  const persistMove = async (
+    leadId: string,
+    nextStage: LeadStage,
+    extras?: { lostReason?: LeadLostReason; lostNotes?: string },
+  ) => {
+    try {
+      if (nextStage === "lost") {
+        if (!extras?.lostReason) return;
+        await mutations.markLost(leadId, {
+          reason: toApiReason(extras.lostReason),
+          notes: extras.lostNotes,
+        });
+      } else {
+        await mutations.setStage(leadId, toApiStage(nextStage));
+      }
+    } catch (err) {
+      toast.error("Stage update failed", { description: errorMessage(err) });
+      // Refresh from server to revert optimism.
+      void pipelineQuery.refetch();
+    }
   };
 
   const handleDropOnColumn = (stage: LeadStage) => {
@@ -207,13 +241,13 @@ export function PipelineScreen() {
     if (!lead || lead.stage === stage) return;
 
     if (stage === "lost") {
-      // Hold the move until the rep confirms a reason.
       setLostLead(lead);
       setLostOpen(true);
       return;
     }
 
-    moveLead(id, stage);
+    moveLeadOptimistic(id, stage);
+    void persistMove(id, stage);
     toast.success(`Moved to ${LEAD_STAGE_LABEL[stage]}`, {
       description: lead.clinicName,
     });
@@ -224,10 +258,13 @@ export function PipelineScreen() {
     reason: LeadLostReason,
     notes: string,
   ) => {
-    moveLead(leadId, "lost", { lostReason: reason, lostNotes: notes });
-    const lead = findLead(leadId);
+    moveLeadOptimistic(leadId, "lost", {
+      lostReason: reason,
+      lostNotes: notes,
+    });
+    void persistMove(leadId, "lost", { lostReason: reason, lostNotes: notes });
     toast.success("Marked as lost", {
-      description: lead?.clinicName ?? undefined,
+      description: findLead(leadId)?.clinicName ?? undefined,
     });
     setLostLead(null);
   };
@@ -258,7 +295,11 @@ export function PipelineScreen() {
         />
         <SummaryTile
           label="Win rate"
-          value={summary.winRatePct === null ? "—" : `${Math.round(summary.winRatePct)}%`}
+          value={
+            summary.winRatePct === null
+              ? "—"
+              : `${Math.round(summary.winRatePct)}%`
+          }
           hint={`${summary.closedWonCount} won · ${summary.lostCount} lost`}
         />
       </div>
@@ -312,11 +353,13 @@ export function PipelineScreen() {
         </div>
       </div>
 
-      <div
-        className="-mx-4 overflow-x-auto px-4 pb-4"
-        // Dragging cards near the edge should auto-pan eventually; for v1 we
-        // rely on standard horizontal scroll inside this wrapper.
-      >
+      {pipelineQuery.error && (
+        <Card className="border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
+          Couldn't load pipeline: {errorMessage(pipelineQuery.error)}
+        </Card>
+      )}
+
+      <div className="-mx-4 overflow-x-auto px-4 pb-4">
         <div className="flex gap-3">
           {KANBAN_STAGE_ORDER.map((stage) => (
             <PipelineColumn
@@ -355,7 +398,8 @@ export function PipelineScreen() {
             }
             return;
           }
-          moveLead(leadId, next);
+          moveLeadOptimistic(leadId, next);
+          void persistMove(leadId, next);
           toast.success(`Stage updated → ${LEAD_STAGE_LABEL[next]}`);
         }}
       />

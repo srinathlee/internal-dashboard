@@ -1,17 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Search } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
-import { auditLog, REFERENCE_DATE, users } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
-import type { AuditLogEntry } from "@/lib/types";
-import { Search } from "lucide-react";
-
-import { AuditLogTable } from "./audit-log-table";
+import { errorMessage } from "@/lib/hooks/use-async";
+import { useAuditLog } from "@/lib/hooks/use-audit-log";
+import { formatTimestamp, timeAgo } from "@/lib/format-metric";
 
 type RangeKey = "7d" | "30d" | "all";
 
@@ -21,20 +20,39 @@ const RANGES: { key: RangeKey; label: string }[] = [
   { key: "all", label: "All time" },
 ];
 
+/**
+ * Audit log surface for super admins. Backed by GET /api/v1/sales/audit-log.
+ */
 export function AuditLogScreen() {
   const auth = useAuth();
   const [search, setSearch] = useState("");
   const [range, setRange] = useState<RangeKey>("30d");
 
-  // Hooks must run unconditionally — compute these before any early return.
-  const userById = useMemo(() => new Map(users.map((u) => [u.id, u])), []);
+  const cutoff = useMemo(() => computeCutoff(range), [range]);
+  const auditQuery = useAuditLog({
+    from: cutoff ?? undefined,
+    limit: 100,
+  });
+
+  const all = auditQuery.data?.data ?? [];
   const filtered = useMemo(() => {
-    const cutoff = computeCutoff(range);
     const q = search.trim().toLowerCase();
-    return auditLog
-      .filter((e) => (cutoff ? e.timestamp >= cutoff : true))
-      .filter((e) => matchesSearch(e, q, userById));
-  }, [range, search, userById]);
+    if (!q) return all;
+    return all.filter((e) => {
+      const hay = [
+        e.actorId,
+        e.action,
+        e.resource,
+        e.resourceId,
+        e.ip,
+        JSON.stringify(e.details ?? {}),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [all, search]);
 
   if (!auth.isLoaded) return <Skeleton />;
 
@@ -53,7 +71,7 @@ export function AuditLogScreen() {
     <div className="space-y-6">
       <PageHeader
         title="Audit log"
-        description={`${filtered.length} of ${auditLog.length} events`}
+        description={`${filtered.length} of ${auditQuery.data?.meta.total ?? all.length} events`}
       />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -66,7 +84,7 @@ export function AuditLogScreen() {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search user, action, resource, IP…"
+            placeholder="Search actor, action, resource, IP…"
             className="pl-9"
             aria-label="Search audit log"
           />
@@ -100,44 +118,82 @@ export function AuditLogScreen() {
         </div>
       </div>
 
-      <AuditLogTable
-        entries={filtered}
-        userById={userById}
-        nowIso={`${REFERENCE_DATE}T12:00:00.000Z`}
-        emptyMessage={
-          search
+      {auditQuery.error ? (
+        <Card className="border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
+          Couldn't load audit log: {errorMessage(auditQuery.error)}
+        </Card>
+      ) : auditQuery.isLoading && all.length === 0 ? (
+        <Card className="h-96 animate-pulse" />
+      ) : filtered.length === 0 ? (
+        <Card className="p-12 text-center text-sm text-zinc-500">
+          {search
             ? `No events match "${search}".`
             : range === "all"
               ? "No audit events recorded yet."
-              : "No audit events in this range."
-        }
-      />
+              : "No audit events in this range."}
+        </Card>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-zinc-200 bg-zinc-50/60 text-left dark:border-zinc-800 dark:bg-zinc-900/40">
+                <th className="px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Time
+                </th>
+                <th className="px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Actor
+                </th>
+                <th className="px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Action
+                </th>
+                <th className="px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  Resource
+                </th>
+                <th className="px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                  IP
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((e) => (
+                <tr
+                  key={e.id}
+                  className="border-b border-zinc-100 transition-colors last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/50"
+                >
+                  <td className="whitespace-nowrap px-4 py-3 align-top">
+                    <div>{timeAgo(e.timestamp)}</div>
+                    <div
+                      className="mt-0.5 text-xs text-zinc-500"
+                      title={e.timestamp}
+                    >
+                      {formatTimestamp(e.timestamp)}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 align-top text-xs">{e.actorId}</td>
+                  <td className="px-4 py-3 align-top">
+                    <div className="font-medium">{e.action}</div>
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    <div>{e.resource}</div>
+                    <div className="text-xs text-zinc-500">{e.resourceId}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 align-top font-mono text-xs text-zinc-500">
+                    {e.ip}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
-}
-
-function matchesSearch(
-  e: AuditLogEntry,
-  q: string,
-  userById: Map<string, { name: string; email: string }>,
-): boolean {
-  if (!q) return true;
-  const actor = userById.get(e.actorId);
-  const haystacks = [
-    actor?.name,
-    actor?.email,
-    e.action,
-    e.resource,
-    e.ip,
-    e.details,
-  ];
-  return haystacks.some((s) => s && s.toLowerCase().includes(q));
 }
 
 function computeCutoff(range: RangeKey): string | null {
   if (range === "all") return null;
   const days = range === "7d" ? 7 : 30;
-  const ref = new Date(`${REFERENCE_DATE}T00:00:00.000Z`);
+  const ref = new Date();
   ref.setUTCDate(ref.getUTCDate() - days);
   return ref.toISOString();
 }

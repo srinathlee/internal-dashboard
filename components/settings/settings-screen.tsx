@@ -17,8 +17,25 @@ import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { getInitials, roleLabel, teamDotClass } from "@/lib/format";
-import { getTeam } from "@/lib/mock-data";
-import type { Role } from "@/lib/types";
+import { errorMessage } from "@/lib/hooks/use-async";
+import { useSalesUserMutations } from "@/lib/hooks/use-sales-users";
+import type { Role, Team } from "@/lib/types";
+
+const TEAM_LABEL: Record<string, string> = {
+  sales: "Sales",
+  onboarding: "Onboarding",
+};
+
+function teamFromId(id: string | null): Team | null {
+  if (!id) return null;
+  return {
+    id: id as Team["id"],
+    name: TEAM_LABEL[id] ?? id,
+    color: id === "sales" ? "blue" : "teal",
+    description: "",
+    metrics: [],
+  };
+}
 
 const NOTIFICATION_PREFS_KEY = "nyra-dashboard:notifications";
 
@@ -54,7 +71,7 @@ function SettingsBody() {
   const auth = useAuth();
   if (!auth.user) return null;
   const user = auth.user;
-  const team = user.teamId ? getTeam(user.teamId) : null;
+  const team = teamFromId(user.teamId);
 
   return (
     <div className="space-y-6">
@@ -93,10 +110,12 @@ function ProfileSection({
   userName: string;
   userEmail: string;
   userRole: Role;
-  team: ReturnType<typeof getTeam> | null;
+  team: Team | null;
 }) {
   const [name, setName] = useState(userName);
   const [submitting, setSubmitting] = useState(false);
+  const auth = useAuth();
+  const { updateMyName } = useSalesUserMutations();
 
   useEffect(() => {
     setName(userName);
@@ -106,11 +125,17 @@ function ProfileSection({
 
   const handleSave = async () => {
     setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 300));
-    setSubmitting(false);
-    toast.success("Profile saved", {
-      description: "Profile changes are visual only in v1.",
-    });
+    try {
+      await updateMyName(name.trim());
+      await auth.refreshUser();
+      toast.success("Profile saved");
+    } catch (err) {
+      toast.error("Couldn't save profile", {
+        description: errorMessage(err),
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (

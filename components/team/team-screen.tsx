@@ -6,42 +6,48 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
-import { getTeam } from "@/lib/mock-data";
 
-import { TeamManagementBody } from "./team-management-body";
+import { TeamDetailScreen } from "@/components/teams/team-detail-screen";
 
 /**
- * /team route — the admin view onto their own team.
- * Super admin redirects to /teams; member sees a no-access card.
+ * /team — the team-scoped admin's view of their own team.
+ *
+ * Behavior by role:
+ *   - SUPER_ADMIN  -> redirected to /teams (the multi-team list)
+ *   - SALES_ADMIN  -> renders TeamDetailScreen for their own teamId
+ *                     (same surface super admin sees at /teams/[teamId],
+ *                     but with super-admin-only actions hidden)
+ *   - SALES_SUBADMIN / no team -> no-access card
+ *
+ * Rendering the same component (rather than redirecting to /teams/:id)
+ * keeps the sidebar's active-state highlighting correct — the sidebar
+ * "Team" item points at /team, and href matching needs the URL to stay
+ * on /team for that admin.
  */
 export function TeamScreen() {
   const auth = useAuth();
   const router = useRouter();
+  const { user, isLoaded } = auth;
 
   useEffect(() => {
-    if (auth.isLoaded && auth.user?.role === "super_admin") {
+    if (isLoaded && user?.role === "super_admin") {
       router.replace("/teams");
     }
-  }, [auth.isLoaded, auth.user?.role, router]);
+  }, [isLoaded, user?.role, router]);
 
-  if (!auth.isLoaded) return <TeamSkeleton />;
-
-  const user = auth.user;
+  if (!isLoaded) return <TeamSkeleton />;
   if (!user) return <NoAccessCard message="You're signed out." />;
 
-  if (!auth.can("team:add_member") && !auth.can("team:remove_member")) {
+  if (user.role === "super_admin") return <TeamSkeleton />;
+
+  if (user.role === "member") {
     return (
       <div className="space-y-6">
-        <PageHeader
-          title="Team"
-          description="Member roster and team controls."
-        />
-        <NoAccessCard message="You don't have permission to manage team members." />
+        <PageHeader title="Team" />
+        <NoAccessCard message="Members don't have access to team management." />
       </div>
     );
   }
-
-  if (user.role === "super_admin") return <TeamSkeleton />;
 
   if (!user.teamId) {
     return (
@@ -52,16 +58,7 @@ export function TeamScreen() {
     );
   }
 
-  const team = getTeam(user.teamId);
-  return (
-    <TeamManagementBody
-      team={team}
-      currentUser={user}
-      canInvite={auth.can("user:invite", { teamId: team.id })}
-      canEditRole={auth.can("user:assign_role")}
-      canDeactivate={auth.can("team:remove_member", { teamId: team.id })}
-    />
-  );
+  return <TeamDetailScreen teamId={user.teamId} />;
 }
 
 function NoAccessCard({ message }: { message: string }) {

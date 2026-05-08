@@ -40,12 +40,9 @@ import {
   LEAD_STAGE_LABEL,
   LEAD_STAGE_ORDER,
 } from "@/lib/sales-leads-data";
-import { REFERENCE_DATE, getUser } from "@/lib/mock-data";
 import type { Lead, LeadStage, LeadTimelineEvent } from "@/lib/types";
 
 import { LeadStageBadge } from "./lead-stage-badge";
-
-const NOW_ISO = `${REFERENCE_DATE}T12:00:00.000Z`;
 
 interface LeadDetailSheetProps {
   lead: Lead | null;
@@ -80,7 +77,7 @@ function LeadDetailBody({
   lead: Lead;
   onChangeStage: (leadId: string, next: LeadStage) => void;
 }) {
-  const owner = getUser(lead.ownerId);
+  const ownerName = lead.ownerName;
 
   return (
     <>
@@ -145,18 +142,18 @@ function LeadDetailBody({
         </StatCard>
         <StatCard label="Last activity">
           <span className="tabular-nums">
-            {timeAgo(lead.lastActivityAt, NOW_ISO)}
+            {timeAgo(lead.lastActivityAt, new Date().toISOString())}
           </span>
         </StatCard>
         <StatCard label="Owner">
-          {owner ? (
+          {ownerName ? (
             <span className="inline-flex items-center gap-1.5 truncate">
               <Avatar className="h-5 w-5">
                 <AvatarFallback className="text-[8px]">
-                  {getInitials(owner.name)}
+                  {getInitials(ownerName)}
                 </AvatarFallback>
               </Avatar>
-              <span className="truncate">{owner.name.split(" ")[0]}</span>
+              <span className="truncate">{ownerName.split(" ")[0]}</span>
             </span>
           ) : (
             <span className="text-zinc-400">—</span>
@@ -332,19 +329,17 @@ function Timeline({ events }: { events: LeadTimelineEvent[] }) {
 }
 
 function TimelineRow({ event }: { event: LeadTimelineEvent }) {
-  const actor = getUser(event.actorId);
-
   return (
     <li className="flex gap-3">
       <TimelineDot type={event.type} />
       <div className="min-w-0 flex-1 space-y-1.5 pb-1">
         <div className="text-xs text-zinc-500">
           <span className="font-medium text-zinc-900 dark:text-zinc-50">
-            {actor?.name ?? "Unknown"}
+            {event.actorName ?? "Unknown"}
           </span>
           <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
           <span title={formatTimestamp(event.timestamp)}>
-            {timeAgo(event.timestamp, NOW_ISO)}
+            {timeAgo(event.timestamp, new Date().toISOString())}
           </span>
           {event.type === "call" && event.durationSec !== undefined && (
             <>
@@ -417,9 +412,9 @@ function DetailsTab({ lead }: { lead: Lead }) {
       <Row label="Value">
         {lead.value > 0 ? formatCurrency(lead.value, "INR") : "—"}
       </Row>
-      <Row label="Owner">{getUser(lead.ownerId)?.name ?? "—"}</Row>
+      <Row label="Owner">{lead.ownerName ?? "—"}</Row>
       <Row label="Last activity">
-        {timeAgo(lead.lastActivityAt, NOW_ISO)}
+        {timeAgo(lead.lastActivityAt, new Date().toISOString())}
       </Row>
     </dl>
   );

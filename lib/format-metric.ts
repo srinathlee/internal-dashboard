@@ -30,7 +30,10 @@ export function formatMetricCompact(value: number, metric: MetricDefinition): st
   return formatNumberCompact(value);
 }
 
-function formatNumber(value: number, format: "integer" | "decimal"): string {
+export function formatNumber(
+  value: number,
+  format: "integer" | "decimal" = "integer",
+): string {
   return format === "integer"
     ? Math.round(value).toLocaleString("en-IN")
     : value.toFixed(1);
