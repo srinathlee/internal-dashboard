@@ -1,4 +1,4 @@
-import type { Role, TeamId } from "./types";
+import type { Role, TeamId, User } from "./types";
 
 export function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -38,6 +38,34 @@ export function teamDotClass(teamId: TeamId | string | null): string {
     default:
       return "bg-indigo-500";
   }
+}
+
+/**
+ * Pick the best display name for the actor of an optimistic event when
+ * the API hasn't echoed a name back yet.
+ *
+ * Order:
+ *   1. If the current user IS the lead owner, use ownerName — the lead's
+ *      `owner.name` is what the API will echo back, so optimistic and
+ *      refetched rows match.
+ *   2. Auth user's name, but skip the "User" placeholder that
+ *      mapAuthMeToUser falls back to when /auth/me omits the name field.
+ *   3. Local-part of the auth user's email (`rini@nyra.ai` -> `rini`).
+ *   4. ownerName.
+ *   5. Empty — the timeline row's outer fallback ("Unknown") takes over.
+ */
+export function resolveActorName(
+  authUser: User | null | undefined,
+  ownerId: string,
+  ownerName: string | undefined,
+): string | undefined {
+  if (authUser?.id && authUser.id === ownerId && ownerName) return ownerName;
+  if (authUser?.name && authUser.name !== "User") return authUser.name;
+  if (authUser?.email) {
+    const local = authUser.email.split("@")[0];
+    if (local) return local;
+  }
+  return ownerName;
 }
 
 /**

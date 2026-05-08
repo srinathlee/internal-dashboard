@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -10,7 +11,6 @@ import {
   Phone,
   StickyNote,
 } from "lucide-react";
-import { toast } from "sonner";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
@@ -43,12 +43,24 @@ import {
 import type { Lead, LeadStage, LeadTimelineEvent } from "@/lib/types";
 
 import { LeadStageBadge } from "./lead-stage-badge";
+import {
+  LeadActivityModal,
+  type ActivityKind,
+} from "./lead-activity-modal";
+import { LeadNextActionModal } from "./lead-next-action-modal";
 
 interface LeadDetailSheetProps {
   lead: Lead | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChangeStage: (leadId: string, next: LeadStage) => void;
+  /**
+   * Called after any mutation made from inside the sheet (activity logged,
+   * next action edited). The parent should refetch the list / pipeline so
+   * derived fields like `last_activity_at` and the timeline reflect the
+   * server's canonical state.
+   */
+  onMutated?: () => void;
 }
 
 export function LeadDetailSheet({
@@ -56,6 +68,7 @@ export function LeadDetailSheet({
   open,
   onOpenChange,
   onChangeStage,
+  onMutated,
 }: LeadDetailSheetProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -64,7 +77,13 @@ export function LeadDetailSheet({
         // Wider than the default sheet — there's a lot of content here.
         className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-md"
       >
-        {lead ? <LeadDetailBody lead={lead} onChangeStage={onChangeStage} /> : null}
+        {lead ? (
+          <LeadDetailBody
+            lead={lead}
+            onChangeStage={onChangeStage}
+            onMutated={onMutated}
+          />
+        ) : null}
       </SheetContent>
     </Sheet>
   );
@@ -73,11 +92,15 @@ export function LeadDetailSheet({
 function LeadDetailBody({
   lead,
   onChangeStage,
+  onMutated,
 }: {
   lead: Lead;
   onChangeStage: (leadId: string, next: LeadStage) => void;
+  onMutated?: () => void;
 }) {
   const ownerName = lead.ownerName;
+  const [activityKind, setActivityKind] = useState<ActivityKind | null>(null);
+  const [nextActionOpen, setNextActionOpen] = useState(false);
 
   return (
     <>
@@ -166,22 +189,29 @@ function LeadDetailBody({
         <ActionTile
           icon={Phone}
           label="Log call"
-          onClick={() => toast.info("Log call modal — Phase 2")}
+          onClick={() => setActivityKind("call")}
         />
         <ActionTile
           icon={Calendar}
           label="Meeting"
-          onClick={() => toast.info("Meeting form — Phase 2")}
+          onClick={() => setActivityKind("meeting")}
         />
         <ActionTile
           icon={StickyNote}
           label="Note"
-          onClick={() => toast.info("Note editor — Phase 2")}
+          onClick={() => setActivityKind("note")}
         />
         <ActionTile
           icon={Layers}
           label="Stage"
-          onClick={() => toast.info("Use the Change selector above to update stage.")}
+          onClick={() => {
+            // Focus the stage selector via DOM; it's the cleanest way to
+            // reuse the existing dropdown without duplicating its state.
+            const trigger = document.querySelector<HTMLElement>(
+              '[aria-label="Change stage"]',
+            );
+            trigger?.click();
+          }}
         />
       </div>
 
@@ -205,7 +235,10 @@ function LeadDetailBody({
         </div>
 
         <TabsContent value="timeline" className="mt-0 flex-1 px-6 py-5">
-          <NextActionBanner lead={lead} />
+          <NextActionBanner
+            lead={lead}
+            onEdit={() => setNextActionOpen(true)}
+          />
           <h3 className="mt-5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
             Activity
           </h3>
@@ -220,6 +253,25 @@ function LeadDetailBody({
           <AboutTab lead={lead} />
         </TabsContent>
       </Tabs>
+
+      <LeadActivityModal
+        open={activityKind !== null}
+        onOpenChange={(o) => {
+          if (!o) setActivityKind(null);
+        }}
+        kind={activityKind ?? "note"}
+        leadId={lead.id}
+        onLogged={onMutated}
+      />
+
+      <LeadNextActionModal
+        open={nextActionOpen}
+        onOpenChange={setNextActionOpen}
+        leadId={lead.id}
+        initialTitle={lead.nextAction}
+        initialDue={null}
+        onSaved={onMutated}
+      />
     </>
   );
 }
@@ -270,7 +322,13 @@ function ActionTile({
   );
 }
 
-function NextActionBanner({ lead }: { lead: Lead }) {
+function NextActionBanner({
+  lead,
+  onEdit,
+}: {
+  lead: Lead;
+  onEdit: () => void;
+}) {
   return (
     <div
       className={cn(
@@ -297,7 +355,7 @@ function NextActionBanner({ lead }: { lead: Lead }) {
       </div>
       <button
         type="button"
-        onClick={() => toast.info("Next action editor — Phase 2")}
+        onClick={onEdit}
         className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-amber-900/40"
       >
         <Edit3 className="h-3 w-3" aria-hidden />

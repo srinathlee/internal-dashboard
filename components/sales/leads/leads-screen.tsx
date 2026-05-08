@@ -29,6 +29,7 @@ import {
   toApiStage,
 } from "@/lib/api/adapters";
 import { getLead } from "@/lib/api/sales-leads";
+import { resolveActorName } from "@/lib/format";
 import type { Lead, LeadStage } from "@/lib/types";
 
 import { LeadsTable } from "./leads-table";
@@ -229,6 +230,11 @@ export function LeadsScreen() {
                   {
                     id: `${leadId}_t${Date.now()}`,
                     actorId: auth.user?.id ?? l.ownerId,
+                    // Prefer ownerName when the current user owns the lead
+                    // (most common case for members). Then fall through the
+                    // auth user's name, skipping the "User" sentinel that
+                    // mapAuthMeToUser uses when /auth/me has no name field.
+                    actorName: resolveActorName(auth.user, l.ownerId, l.ownerName),
                     timestamp: new Date().toISOString(),
                     type: "stage-change" as const,
                     fromStage: l.stage,
@@ -315,6 +321,23 @@ export function LeadsScreen() {
         open={sheetOpen}
         onOpenChange={handleSheetOpenChange}
         onChangeStage={handleChangeStage}
+        onMutated={async () => {
+          // Refresh the list so last_activity_at and the row preview pick
+          // up the new event. Then re-hydrate the open sheet's timeline
+          // from the detail endpoint (the list endpoint omits timeline).
+          void leadsQuery.refetch();
+          if (selectedId) {
+            try {
+              const detail = await getLead(selectedId);
+              const full = adaptLeadDetail(detail);
+              setLeads((prev) =>
+                prev.map((l) => (l.id === full.id ? full : l)),
+              );
+            } catch {
+              /* sheet stays on prior data */
+            }
+          }
+        }}
       />
 
       <EditLeadModal

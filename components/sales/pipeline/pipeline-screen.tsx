@@ -13,6 +13,7 @@ import {
   isSalesAdminOrSuperAdmin,
   isSalesMember,
 } from "@/lib/access";
+import { resolveActorName } from "@/lib/format";
 import { formatCurrency } from "@/lib/format-metric";
 import { LEAD_STAGE_LABEL } from "@/lib/sales-leads-data";
 import {
@@ -188,6 +189,7 @@ export function PipelineScreen() {
       const event = {
         id: `${leadId}_t${Date.now()}`,
         actorId: auth.user?.id ?? lead.ownerId,
+        actorName: resolveActorName(auth.user, lead.ownerId, lead.ownerName),
         timestamp: now,
         type: "stage-change" as const,
         fromStage: lead.stage,
@@ -401,6 +403,13 @@ export function PipelineScreen() {
           moveLeadOptimistic(leadId, next);
           void persistMove(leadId, next);
           toast.success(`Stage updated → ${LEAD_STAGE_LABEL[next]}`);
+        }}
+        onMutated={() => {
+          // Refresh the pipeline so last_activity_at and recency buckets
+          // line up with the new event. The sheet's lead prop comes from
+          // pipeline state, so refetching is enough — no separate detail
+          // call here.
+          void pipelineQuery.refetch();
         }}
       />
 
