@@ -18,7 +18,7 @@ import {
   readPersistedMe,
   type AuthMe,
 } from "./api/auth";
-import { getAuthToken, setAuthToken } from "./api/client";
+import { ApiError, getAuthToken, setAuthToken } from "./api/client";
 
 /**
  * Auth context for the dashboard.
@@ -132,12 +132,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return;
         setUser(mapAuthMeToUser(me));
       })
-      .catch(() => {
+      .catch((err) => {
         if (cancelled) return;
-        // /auth/me failed — the token is dead. Clear and force re-login.
-        setUser(null);
-        setAuthToken(null);
-        setTokenState(null);
+        // Only clear the session on a hard auth failure (401). Network
+        // errors, 5xx, and unexpected response shapes all leave the cached
+        // user in place — the token is still valid and we already rendered
+        // the cached user above, so a transient revalidation hiccup
+        // shouldn't kick the user back to /login or replace their name
+        // with the "User" placeholder.
+        const isAuthFailure = err instanceof ApiError && err.status === 401;
+        if (isAuthFailure) {
+          setUser(null);
+          setAuthToken(null);
+          setTokenState(null);
+        }
       })
       .finally(() => {
         if (!cancelled) setIsLoaded(true);

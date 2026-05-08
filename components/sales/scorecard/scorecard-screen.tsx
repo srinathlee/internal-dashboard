@@ -104,26 +104,48 @@ function currentMonthKey(): string {
 function buildPeriodOptions(): { value: string; label: string }[] {
   const out: { value: string; label: string }[] = [];
   const now = new Date();
-  // Last 6 months
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  const currentQuarter = Math.floor(month / 3) + 1;
+  const currentHalf = month < 6 ? 1 : 2;
+  const TO_DATE = " (to date)";
+
+  // Last 6 months — built in UTC. Using local-time `new Date(y, m, 1)` here
+  // skipped the current month in IST because the constructed midnight in
+  // local time falls on the previous day in UTC.
   for (let i = 0; i < 6; i++) {
-    const d = new Date(now.getUTCFullYear(), now.getUTCMonth() - i, 1);
+    const d = new Date(Date.UTC(year, month - i, 1));
     const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-    const label = d.toLocaleDateString("en-US", {
+    const base = d.toLocaleDateString("en-US", {
       month: "long",
       year: "numeric",
       timeZone: "UTC",
     });
-    out.push({ value: key, label });
+    out.push({ value: key, label: i === 0 ? `${base}${TO_DATE}` : base });
   }
-  // Quarters for current and previous year
-  const year = now.getUTCFullYear();
+
+  // Quarters / halves / years — current period gets the same "(to date)" hint.
   for (const y of [year, year - 1]) {
     for (const q of [4, 3, 2, 1]) {
-      out.push({ value: `${y}-Q${q}`, label: `Q${q} ${y}` });
+      const base = `Q${q} ${y}`;
+      const isCurrent = y === year && q === currentQuarter;
+      out.push({
+        value: `${y}-Q${q}`,
+        label: isCurrent ? `${base}${TO_DATE}` : base,
+      });
     }
-    out.push({ value: `${y}-H1`, label: `H1 ${y}` });
-    out.push({ value: `${y}-H2`, label: `H2 ${y}` });
-    out.push({ value: `${y}`, label: String(y) });
+    for (const h of [1, 2]) {
+      const base = `H${h} ${y}`;
+      const isCurrent = y === year && h === currentHalf;
+      out.push({
+        value: `${y}-H${h}`,
+        label: isCurrent ? `${base}${TO_DATE}` : base,
+      });
+    }
+    out.push({
+      value: `${y}`,
+      label: y === year ? `${y}${TO_DATE}` : String(y),
+    });
   }
   return out;
 }

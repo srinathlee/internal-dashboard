@@ -36,6 +36,7 @@ import type { ApiSubadmin } from "@/lib/api/types";
 import { ResetPasswordModal } from "./reset-password-modal";
 import { ReplaceAdminModal } from "./replace-admin-modal";
 import { AddMemberModal } from "./add-member-modal";
+import { MemberDetailSheet } from "./member-detail-sheet";
 
 interface TeamDetailScreenProps {
   teamId: string;
@@ -65,12 +66,25 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
   const [resetUser, setResetUser] = useState<ApiSubadmin | null>(null);
   const [replaceAdminOpen, setReplaceAdminOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
+  // Store the open member's id, then look up the freshest record on each
+  // render so the sheet reflects post-mutation refetches without leaking
+  // stale state via setMemberDetail(member).
+  const [memberDetailId, setMemberDetailId] = useState<string | null>(null);
 
   const team = useMemo(
     () => teamsQuery.data?.find((t) => t.id === teamId) ?? null,
     [teamsQuery.data, teamId],
   );
   const subadmins = subadminsQuery.data?.sales_subadmins ?? [];
+
+  const memberDetail = useMemo(
+    () => subadmins.find((s) => s.id === memberDetailId) ?? null,
+    [subadmins, memberDetailId],
+  );
+
+  const openMemberDetail = (m: ApiSubadmin) => {
+    setMemberDetailId(m.id);
+  };
 
   if (!auth.isLoaded) return <Skeleton />;
 
@@ -237,7 +251,17 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
               {subadmins.map((u) => (
                 <tr
                   key={u.id}
-                  className="border-t border-zinc-100 dark:border-zinc-800"
+                  onClick={() => openMemberDetail(u)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openMemberDetail(u);
+                    }
+                  }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Open detail for ${u.name}`}
+                  className="cursor-pointer border-t border-zinc-100 transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-zinc-800 dark:hover:bg-zinc-900"
                 >
                   <td className="px-4 py-2">
                     <div className="flex items-center gap-2.5">
@@ -263,7 +287,10 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
                   <td className="px-4 py-2 text-right tabular-nums">
                     {u.target_hospitals}/{u.target_period.toLowerCase()}
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td
+                    className="px-4 py-2 text-right"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -348,6 +375,19 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
         onOpenChange={setAddMemberOpen}
         teamId={teamId}
         onCreated={refetchAll}
+      />
+
+      <MemberDetailSheet
+        member={memberDetail}
+        open={memberDetailId !== null}
+        onOpenChange={(o) => {
+          if (!o) {
+            // Defer the id clear so the sheet content doesn't blank out
+            // mid-close animation.
+            window.setTimeout(() => setMemberDetailId(null), 200);
+          }
+        }}
+        onMutated={refetchAll}
       />
     </div>
   );

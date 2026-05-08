@@ -180,9 +180,32 @@ function extractTokenFromCookies(): string | null {
 /**
  * GET /api/auth/me — fetch the current user given a stored cookie.
  * Used on app boot to rehydrate the session.
+ *
+ * The backend wraps the payload as `{ user: AuthMe }` (see the file-level
+ * doc comment) and may additionally wrap that in `{ data: ... }` on some
+ * deployments. Unwrap both layers so we always hand back a flat AuthMe —
+ * if we don't, callers get an object with no `name` / `role` and the auth
+ * context falls back to the literal "User" placeholder, which is what
+ * surfaced as the bug where the avatar showed "U" after a hard refresh.
  */
 export async function fetchMe(): Promise<AuthMe> {
-  const me = await apiData<AuthMe>("/api/auth/me");
+  const body = await apiRequest<unknown>("/api/auth/me");
+  const envelope = unwrapData(body);
+  const me =
+    envelope &&
+    typeof envelope === "object" &&
+    "user" in (envelope as object) &&
+    (envelope as { user?: unknown }).user
+      ? (envelope as { user: AuthMe }).user
+      : (envelope as AuthMe);
+
+  // If the response shape is unexpected (no id or role) we don't want to
+  // overwrite a previously good cached user with a placeholder. Throw and
+  // let the boot effect decide whether to keep the cache or clear it.
+  if (!me || typeof me !== "object" || !me.id || !me.role) {
+    throw new Error("Auth /me returned an unexpected shape (missing id/role).");
+  }
+
   persistMe(me);
   return me;
 }

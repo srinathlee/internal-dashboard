@@ -67,9 +67,43 @@ export function useAsync<T>(
   return { data, error, isLoading, refetch, setData };
 }
 
+/**
+ * Friendly text for the structured `error.code` values the Sales API
+ * returns. Source of truth:
+ *   - docs/BACKEND_SPEC_SALES_ADMIN_ACCESS.md §2 (WRONG_TEAM)
+ *   - docs/BACKEND_SPEC_SELF_PASSWORD_CHANGE.md §4 (password codes)
+ *   - sales-api.md §12 (LOST_REQUIRES_REASON, TEAM_NOT_EMPTY, WEIGHTS_NOT_100)
+ *
+ * The backend already returns reasonable `message` strings for these, but
+ * pinning the user-facing copy here gives consistent UX even if the backend
+ * changes wording, and it lets future code branch on the code without
+ * re-parsing the message.
+ */
+const FRIENDLY_BY_CODE: Record<string, string> = {
+  WRONG_TEAM:
+    "This action targets a different team. You can only act within your own team.",
+  BAD_CURRENT_PASSWORD: "Current password is incorrect.",
+  WEAK_PASSWORD: "New password must be at least 8 characters.",
+  SAME_PASSWORD: "New password must be different from your current one.",
+  LOST_REQUIRES_REASON:
+    "Use the Mark as lost flow — moving a lead to Lost requires a reason.",
+  TEAM_NOT_EMPTY: "Remove all members before deleting this team.",
+  WEIGHTS_NOT_100: "Active rule weights must sum to 100.",
+};
+
 /** Render-friendly message for any error returned from useAsync. */
 export function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.message;
+  if (err instanceof ApiError) {
+    const friendly = err.code ? FRIENDLY_BY_CODE[err.code] : undefined;
+    if (friendly) return friendly;
+    return err.message;
+  }
   if (err instanceof Error) return err.message;
   return "Something went wrong.";
+}
+
+/** Returns the structured error code if the error is a coded ApiError. */
+export function errorCode(err: unknown): string | undefined {
+  if (err instanceof ApiError) return err.code;
+  return undefined;
 }

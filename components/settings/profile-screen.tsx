@@ -27,7 +27,7 @@ import {
   teamDisplayName,
   teamDotClass,
 } from "@/lib/format";
-import { errorMessage } from "@/lib/hooks/use-async";
+import { errorCode, errorMessage } from "@/lib/hooks/use-async";
 import { useSalesUserMutations } from "@/lib/hooks/use-sales-users";
 
 /**
@@ -294,6 +294,15 @@ function PasswordCard() {
       toast.error("Couldn't change password", {
         description: errorMessage(err),
       });
+      // BAD_CURRENT_PASSWORD: empty just the current field and refocus it so
+      // the user can retype without clearing the new password they already
+      // typed twice. Other codes leave the form alone so the user can amend.
+      if (errorCode(err) === "BAD_CURRENT_PASSWORD") {
+        setCurrent("");
+        window.setTimeout(() => {
+          document.getElementById("pw-current")?.focus();
+        }, 0);
+      }
     } finally {
       setSubmitting(false);
     }
