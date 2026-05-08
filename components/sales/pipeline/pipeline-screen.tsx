@@ -84,8 +84,18 @@ export function PipelineScreen() {
   }, [peopleQuery.data]);
 
   const ownerScopedLeads = useMemo(() => {
+    // The pipeline endpoint already scopes to the member's own leads
+    // (per spec §3 / sales-api). This client-side check is just a
+    // defense-in-depth against the backend leaking other reps' data.
+    //
+    // We INCLUDE leads with an empty ownerId, because the pipeline endpoint
+    // sometimes omits `sales_user_id`/`owner` on freshly-created leads —
+    // dropping them here was hiding new leads that the leads-list view
+    // showed correctly.
     if (member && auth.user) {
-      return leads.filter((l) => l.ownerId === auth.user!.id);
+      return leads.filter(
+        (l) => !l.ownerId || l.ownerId === auth.user!.id,
+      );
     }
     return leads;
   }, [leads, member, auth.user]);
