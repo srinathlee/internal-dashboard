@@ -5,6 +5,7 @@ import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
+  Clock,
   Flame,
   IndianRupee,
   RefreshCw,
@@ -16,6 +17,13 @@ import {
 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
 import { formatCurrency, formatTimestamp, timeAgo } from "@/lib/format-metric";
@@ -23,6 +31,7 @@ import { errorMessage } from "@/lib/hooks/use-async";
 import { useMyActivity, useMyOverview } from "@/lib/hooks/use-overview";
 import { cn } from "@/lib/utils";
 import type { ActivityItem, MyOverview } from "@/lib/api/types";
+import type { TeamId } from "@/lib/types";
 
 import { TeamOverviewScreen } from "./team-overview-screen";
 
@@ -59,9 +68,11 @@ export function PerformanceScreen() {
     );
   }
 
-  // Sales admins and super admins get the full Team Overview surface —
-  // KPI strip, health cards, leaderboard, conversion table, roster and
-  // activity feed. Members continue below with their personal overview.
+  // Super admin: pick a team, then route. Sales admin: skip the picker
+  // and land on their own team's overview directly.
+  if (auth.user.role === "super_admin") {
+    return <SuperAdminTeamRouter />;
+  }
   if (auth.user.role !== "member") {
     return <TeamOverviewScreen />;
   }
@@ -765,6 +776,90 @@ function parseStageMove(
   const m = body.match(/^Moved\s+(.+?)\s+from\s+(.+?)\s+(?:→|->|to)\s+(.+)$/i);
   if (!m) return null;
   return { clinic: m[1]!, from: m[2]!, to: m[3]!.replace(/\.$/, "") };
+}
+
+// ---------- Super admin team router ----------
+
+/**
+ * Super-admin Performance lets them choose which team's overview to see.
+ * Sales lands on the full <TeamOverviewScreen />. Onboarding (and any other
+ * future team) shows an "Still under progress" placeholder until that
+ * team's overview surface is built.
+ *
+ * Sales admins skip this picker — they're scoped to their own team — see
+ * the branching in PerformanceScreen above.
+ */
+function SuperAdminTeamRouter() {
+  const [team, setTeam] = useState<TeamId>("sales");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Team performance
+          </div>
+          <p className="text-sm text-zinc-500">
+            Choose a team to view its overview.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Team
+          </span>
+          <Select value={team} onValueChange={(v) => setTeam(v as TeamId)}>
+            <SelectTrigger className="h-9 w-[12rem]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sales">
+                <span className="inline-flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="h-1.5 w-1.5 rounded-full bg-blue-500"
+                  />
+                  Sales
+                </span>
+              </SelectItem>
+              <SelectItem value="onboarding">
+                <span className="inline-flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="h-1.5 w-1.5 rounded-full bg-emerald-500"
+                  />
+                  Onboarding
+                </span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {team === "sales" ? <TeamOverviewScreen /> : <OnboardingPlaceholder />}
+    </div>
+  );
+}
+
+function OnboardingPlaceholder() {
+  return (
+    <Card className="flex flex-col items-center gap-3 p-12 text-center">
+      <span
+        aria-hidden
+        className="grid h-12 w-12 place-items-center rounded-full bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400"
+      >
+        <Clock className="h-5 w-5" />
+      </span>
+      <div>
+        <div className="text-base font-medium text-zinc-700 dark:text-zinc-300">
+          Still under progress
+        </div>
+        <p className="mt-1 max-w-md text-sm text-zinc-500">
+          The Onboarding team's overview is being built. KPIs, roster, and
+          activity will land here once the backend endpoints ship.
+        </p>
+      </div>
+    </Card>
+  );
 }
 
 // ---------- Skeleton ----------

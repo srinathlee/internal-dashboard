@@ -162,9 +162,16 @@ function ScreenHeader({
   period: Period;
   onPeriodChange: (next: Period) => void;
 }) {
+  const auth = useAuth();
   const [busy, setBusy] = useState(false);
   const greeting = useMemo(() => greetingFor(new Date()), []);
   const firstName = name.split(/\s+/)[0] || "there";
+
+  // Super admins manage members from /teams/:teamId, not here. The
+  // shortcut button is meaningful for team admins (who live on this page
+  // and add reps to their own team) — for super admin it would just open
+  // a placeholder, so we hide it.
+  const showAddAssociate = auth.user?.role !== "super_admin";
 
   const handleExport = async () => {
     setBusy(true);
@@ -211,13 +218,15 @@ function ScreenHeader({
           <Download className="h-3.5 w-3.5" />
           Export CSV
         </Button>
-        <Button
-          size="sm"
-          onClick={() => toast("Add associate — coming soon")}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add associate
-        </Button>
+        {showAddAssociate ? (
+          <Button
+            size="sm"
+            onClick={() => toast("Add associate — coming soon")}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add associate
+          </Button>
+        ) : null}
       </div>
     </div>
   );
