@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Building2, Search } from "lucide-react";
+import { Building2, Plus, Search } from "lucide-react";
+import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/layout/page-header";
@@ -17,6 +19,7 @@ import { useAuth } from "@/lib/auth";
 import { errorMessage } from "@/lib/hooks/use-async";
 import { useHospitals } from "@/lib/hooks/use-hospitals";
 
+import { CreateHospitalModal } from "./create-hospital-modal";
 import { HospitalCard } from "./hospital-card";
 
 type SortKey = "name-asc" | "name-desc" | "branches-desc" | "users-desc";
@@ -43,12 +46,15 @@ export function HospitalsScreen() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("name-asc");
   const [city, setCity] = useState<string>(ALL_CITY);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const hospitalsQuery = useHospitals({
     q: search.trim() || undefined,
     city: city === ALL_CITY ? undefined : city,
     limit: 100,
   });
+
+  const canCreate = auth.user?.role === "super_admin";
 
   const hospitals = hospitalsQuery.data?.hospitals ?? [];
 
@@ -90,10 +96,30 @@ export function HospitalsScreen() {
           <Building2 className="h-4 w-4" />
         </div>
         <PageHeader
+          className="flex-1"
           title="All Hospitals"
           description={`${hospitals.length} hospitals · search, sort and filter below`}
+          actions={
+            canCreate ? (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Create hospital
+              </Button>
+            ) : undefined
+          }
         />
       </div>
+
+      {canCreate ? (
+        <CreateHospitalModal
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onCreated={(name) => {
+            toast.success(`Hospital "${name}" created`);
+            void hospitalsQuery.refetch();
+          }}
+        />
+      ) : null}
 
       <Card className="p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
