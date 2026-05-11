@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 import { cn } from "@/lib/utils";
 
 interface LogoProps {
@@ -6,18 +8,20 @@ interface LogoProps {
 }
 
 /**
- * Simple wordmark — a small indigo square + "NYRA". Kept understated;
- * no gradient, no decorative icon.
+ * Sidebar wordmark: NYRA brand mark + "NYRA". Same PNG as the splash loader
+ * so the brand stays consistent across surfaces.
  */
 export function Logo({ collapsed = false, className }: LogoProps) {
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <div
-        aria-hidden
-        className="grid h-7 w-7 place-items-center rounded-md bg-zinc-900 text-xs font-semibold tracking-tight text-white dark:bg-zinc-50 dark:text-zinc-900"
-      >
-        N
-      </div>
+      <Image
+        src="/nyra-logo.png"
+        alt="NYRA"
+        width={28}
+        height={28}
+        priority
+        className="h-7 w-7 shrink-0 object-contain"
+      />
       {!collapsed && (
         <span className="text-sm font-semibold tracking-tight">NYRA</span>
       )}

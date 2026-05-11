@@ -552,7 +552,13 @@ export function CreateUserScreen({ hospitalId }: { hospitalId: string }) {
             <Button
               type="button"
               variant="outline"
-              onClick={() => router.push(backHref)}
+              onClick={() => {
+                if (typeof window !== "undefined" && window.history.length > 1) {
+                  router.back();
+                } else {
+                  router.push(backHref);
+                }
+              }}
               disabled={submitting}
             >
               Cancel

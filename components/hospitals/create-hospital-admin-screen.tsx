@@ -195,7 +195,19 @@ export function CreateHospitalAdminScreen({
             <Button
               type="button"
               variant="outline"
-              onClick={() => router.push(backHref)}
+              onClick={() => {
+                // Prefer history.back so we return to the exact page the
+                // user came from (could be /hospitals/:id, or /hospitals
+                // if they deep-linked). router.push to a hard-coded path
+                // sometimes hit a transient "hospital not found" state on
+                // the detail page after a fresh navigation; back() side-
+                // steps it by using the real browser history entry.
+                if (typeof window !== "undefined" && window.history.length > 1) {
+                  router.back();
+                } else {
+                  router.push(backHref);
+                }
+              }}
               disabled={submitting}
             >
               Cancel

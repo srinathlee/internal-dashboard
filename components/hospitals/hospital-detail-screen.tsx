@@ -84,8 +84,30 @@ export function HospitalDetailScreen({ hospitalId }: { hospitalId: string }) {
     return (
       <div className="space-y-6">
         <BackLink />
-        <Card className="border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
-          Couldn't load hospital: {errorMessage(hospitalQuery.error)}
+        <Card className="border-rose-200 bg-rose-50 p-6 dark:border-rose-900/40 dark:bg-rose-950/40">
+          <p className="text-sm text-rose-700 dark:text-rose-300">
+            Couldn't load hospital: {errorMessage(hospitalQuery.error)}
+          </p>
+          {/* The detail screen sometimes lands in this error state right
+              after navigating back from one of the nested create routes,
+              even when the hospital exists. Give the user an obvious way
+              to retry without manually refreshing the page. */}
+          <div className="mt-4 flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void hospitalQuery.refetch()}
+              disabled={hospitalQuery.isLoading}
+            >
+              {hospitalQuery.isLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Try again
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/hospitals">Back to hospitals list</Link>
+            </Button>
+          </div>
         </Card>
       </div>
     );
