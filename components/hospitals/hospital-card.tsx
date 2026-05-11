@@ -1,7 +1,9 @@
+import Link from "next/link";
 import {
   Building2,
   ChevronRight,
   Hash,
+  Pencil,
   ShieldCheck,
   User as UserIcon,
   UserCheck,
@@ -16,6 +18,13 @@ interface HospitalCardProps {
   hospital: Hospital;
   /** User who created this hospital — provides the "Created by" name. */
   creator?: User;
+  /**
+   * Called when the row-level Edit button is clicked. The Card is wrapped
+   * in a Link, so the handler is given the click event to suppress the
+   * outer navigation. Omit to hide the Edit affordance entirely (e.g. for
+   * non-super-admin viewers).
+   */
+  onEdit?: (hospital: Hospital) => void;
 }
 
 /**
@@ -24,9 +33,13 @@ interface HospitalCardProps {
  *
  * Chips: Admins, Users, Branches, Created by, NYRA AI Number.
  */
-export function HospitalCard({ hospital, creator }: HospitalCardProps) {
+export function HospitalCard({ hospital, creator, onEdit }: HospitalCardProps) {
   return (
-    <Card className="flex items-stretch gap-4 p-5 transition-colors hover:border-zinc-300 dark:hover:border-zinc-700">
+    <Link
+      href={`/hospitals/${hospital.id}`}
+      className="block focus-visible:outline-none"
+    >
+      <Card className="flex items-stretch gap-4 p-5 transition-colors hover:border-zinc-300 dark:hover:border-zinc-700">
       <div className="flex flex-col items-center gap-3">
         <ChevronRight
           className="h-4 w-4 text-zinc-400"
@@ -41,13 +54,31 @@ export function HospitalCard({ hospital, creator }: HospitalCardProps) {
       </div>
 
       <div className="min-w-0 flex-1 space-y-2">
-        <div>
-          <h3 className="truncate text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            {hospital.name}
-          </h3>
-          <p className="mt-0.5 truncate text-sm text-zinc-500">
-            {hospital.address}
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+              {hospital.name}
+            </h3>
+            <p className="mt-0.5 truncate text-sm text-zinc-500">
+              {hospital.address}
+            </p>
+          </div>
+          {onEdit ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                // Card is wrapped in a Link — stop the click from navigating.
+                e.preventDefault();
+                e.stopPropagation();
+                onEdit(hospital);
+              }}
+              aria-label={`Edit ${hospital.name}`}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 text-xs font-medium text-zinc-700 transition-colors hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              <Pencil className="h-3 w-3" aria-hidden />
+              Edit
+            </button>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -85,7 +116,8 @@ export function HospitalCard({ hospital, creator }: HospitalCardProps) {
           />
         </div>
       </div>
-    </Card>
+      </Card>
+    </Link>
   );
 }
 

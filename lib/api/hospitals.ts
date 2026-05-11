@@ -147,6 +147,50 @@ export function createHospital(
 }
 
 /**
+ * Body for PUT /api/hospitals/:id — full hospital update.
+ *
+ * Per spec § 3: only provided fields are updated, so every field is
+ * optional. Use `updateHospitalProfile` instead when acting as a
+ * HOSPITAL_ADMIN (limited scope, different endpoint).
+ *
+ * Permission: super_admin only.
+ */
+export interface UpdateHospitalInput {
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  emergency_phone?: string | null;
+  /** Array of location strings per spec § 21. */
+  location?: string[] | null;
+  address?: string | null;
+  timezone?: string | null;
+  currency?: string | null;
+  hospital_image_url?: string | null;
+  banner_url?: string | null;
+  company_logo_url?: string | null;
+  primary_color?: string | null;
+  /** "dental" | "multispecialty" | etc. */
+  hospital_type?: string | string[] | null;
+  /** Outpatient consultation fee, positive number or null. */
+  op_fee?: number | null;
+  treatments?: string[] | null;
+  start_language?: string | null;
+  strict_languages?: boolean | null;
+  hide_from_directory?: boolean | null;
+  status?: "ACTIVE" | "INACTIVE";
+}
+
+export function updateHospital(
+  id: string,
+  input: UpdateHospitalInput,
+): Promise<Hospital> {
+  return apiData<Hospital>(`/api/hospitals/${id}`, {
+    method: "PUT",
+    body: input,
+  });
+}
+
+/**
  * Update (or replace) an existing hospital's image. Used from the future
  * Hospital settings surface — the Create wizard sends the URL inline via
  * POST /api/hospitals, so this isn't called during creation.

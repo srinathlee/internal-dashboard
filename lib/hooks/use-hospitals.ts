@@ -7,9 +7,11 @@ import {
   deleteHospitalImage,
   getHospital,
   listHospitals,
+  updateHospital,
   updateHospitalImage,
   type CreateHospitalInput,
   type ListHospitalsQuery,
+  type UpdateHospitalInput,
 } from "@/lib/api/hospitals";
 
 import { useAsync } from "./use-async";
@@ -32,6 +34,10 @@ export function useHospitalMutations() {
   return {
     create: useCallback(
       (input: CreateHospitalInput) => createHospital(input),
+      [],
+    ),
+    update: useCallback(
+      (id: string, input: UpdateHospitalInput) => updateHospital(id, input),
       [],
     ),
     setImage: useCallback(

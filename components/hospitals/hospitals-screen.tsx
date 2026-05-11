@@ -20,6 +20,7 @@ import { errorMessage } from "@/lib/hooks/use-async";
 import { useHospitals } from "@/lib/hooks/use-hospitals";
 
 import { CreateHospitalModal } from "./create-hospital-modal";
+import { EditHospitalModal } from "./edit-hospital-modal";
 import { HospitalCard } from "./hospital-card";
 
 type SortKey = "name-asc" | "name-desc" | "branches-desc" | "users-desc";
@@ -47,6 +48,7 @@ export function HospitalsScreen() {
   const [sort, setSort] = useState<SortKey>("name-asc");
   const [city, setCity] = useState<string>(ALL_CITY);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const hospitalsQuery = useHospitals({
     q: search.trim() || undefined,
@@ -55,6 +57,7 @@ export function HospitalsScreen() {
   });
 
   const canCreate = auth.user?.role === "super_admin";
+  const canEdit = canCreate;
 
   const hospitals = hospitalsQuery.data?.hospitals ?? [];
 
@@ -116,6 +119,19 @@ export function HospitalsScreen() {
           onOpenChange={setCreateOpen}
           onCreated={(name) => {
             toast.success(`Hospital "${name}" created`);
+            void hospitalsQuery.refetch();
+          }}
+        />
+      ) : null}
+
+      {canEdit ? (
+        <EditHospitalModal
+          open={editingId !== null}
+          hospitalId={editingId}
+          onOpenChange={(next) => {
+            if (!next) setEditingId(null);
+          }}
+          onSaved={() => {
             void hospitalsQuery.refetch();
           }}
         />
@@ -188,7 +204,13 @@ export function HospitalsScreen() {
       ) : (
         <div className="space-y-3">
           {filtered.map((h) => (
-            <HospitalCard key={h.id} hospital={h} />
+            <HospitalCard
+              key={h.id}
+              hospital={h}
+              onEdit={
+                canEdit ? (hospital) => setEditingId(hospital.id) : undefined
+              }
+            />
           ))}
         </div>
       )}
