@@ -72,11 +72,22 @@ export async function listHospitals(
   return normalizeListResponse(raw);
 }
 
-export function getHospital(
+export async function getHospital(
   id: string,
   signal?: AbortSignal,
 ): Promise<Hospital> {
-  return apiData<Hospital>(`/api/hospitals/${id}`, { signal });
+  // The backend sometimes wraps the row as `{ hospital: {...} }` inside the
+  // `data` envelope (the create endpoint does this — see CreateHospitalResponse).
+  // `apiData` only strips the outer `data` layer, so unwrap `hospital` here
+  // when present so the screen reads `id`/`name` directly off the row.
+  const raw = await apiData<Hospital | { hospital: Hospital }>(
+    `/api/hospitals/${id}`,
+    { signal },
+  );
+  if (raw && typeof raw === "object" && "hospital" in raw) {
+    return (raw as { hospital: Hospital }).hospital;
+  }
+  return raw as Hospital;
 }
 
 /**

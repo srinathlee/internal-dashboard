@@ -113,7 +113,13 @@ export function HospitalDetailScreen({ hospitalId }: { hospitalId: string }) {
     );
   }
 
-  const hospital = hospitalQuery.data;
+  // Backstop: if the API row doesn't carry `id` (e.g. an unexpected envelope
+  // shape), fall back to the URL param so the nested admin/user create links
+  // never resolve to `/hospitals/undefined/...`.
+  const hospital: Hospital = {
+    ...hospitalQuery.data,
+    id: hospitalQuery.data.id ?? hospitalId,
+  };
 
   return (
     <div className="space-y-6">
