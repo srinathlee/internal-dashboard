@@ -1126,7 +1126,12 @@ function greetingFor(now: Date): string {
   return "Good evening";
 }
 
-function firstNameOf(name: string): string {
+function firstNameOf(name: string | null | undefined): string {
+  // The activity feed has been observed returning null for actor_name on
+  // system-generated entries (stage changes triggered by automation, etc.),
+  // even though the type says string. Guard so a single missing name
+  // doesn't crash the whole Team Overview screen.
+  if (!name) return "Someone";
   return name.split(/\s+/)[0] ?? name;
 }
 
