@@ -28,15 +28,16 @@ function normalizeBranchesList(raw: unknown): Branch[] {
 }
 
 /**
- * List branches for a hospital — spec §14.
- * `GET /api/branches/hospital/:hospital_id` returns the full branch objects;
- * no per-branch detail call is needed.
+ * List branches for a hospital. The working form on this deployment is
+ * `GET /api/branches?hospital_id=<id>` — the path-style
+ * `/api/branches/hospital/:hospital_id` 401s for non-admin tokens.
  */
 export async function listBranchesForHospital(
   hospitalId: string,
   signal?: AbortSignal,
 ): Promise<Branch[]> {
-  const raw = await apiData<unknown>(`/api/branches/hospital/${hospitalId}`, {
+  const raw = await apiData<unknown>("/api/branches", {
+    query: { hospital_id: hospitalId },
     signal,
   });
   return normalizeBranchesList(raw);

@@ -68,6 +68,12 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** When true, returns the raw Response (used for CSV exports). */
   raw?: boolean;
+  /**
+   * Skip sending the `Authorization: Bearer <jwt>` header. Use for endpoints
+   * with "optional auth" where a stale/wrong-scope token would be rejected
+   * but anonymous access succeeds.
+   */
+  skipAuth?: boolean;
 }
 
 function buildUrl(
@@ -109,7 +115,7 @@ export async function apiRequest<T = unknown>(
     ...opts.headers,
   };
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (token && !opts.skipAuth) headers["Authorization"] = `Bearer ${token}`;
 
   // server.nyraai.io uses HttpOnly cookie auth (login sets a cookie via
   // Set-Cookie, every subsequent request reads it back). `credentials:

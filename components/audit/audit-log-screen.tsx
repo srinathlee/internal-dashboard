@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
@@ -11,6 +11,11 @@ import { cn } from "@/lib/utils";
 import { errorMessage } from "@/lib/hooks/use-async";
 import { useAuditLog } from "@/lib/hooks/use-audit-log";
 import { formatTimestamp, timeAgo } from "@/lib/format-metric";
+import { getUser } from "@/lib/api/users";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Marker used internally to avoid re-fetching IDs the server doesn't know about.
+const UNKNOWN = "__unknown__";
 
 type RangeKey = "7d" | "30d" | "all";
 
@@ -35,24 +40,81 @@ export function AuditLogScreen() {
   });
 
   const all = auditQuery.data?.data ?? [];
+
+  // Resolve UUID → user display name once per id, cached across renders. We
+  // only resolve resource IDs whose `resource === "User"`; the actor side
+  // is always a user, so its IDs always go in.
+  const [userNames, setUserNames] = useState<Record<string, string>>({});
+  const userIdsToResolve = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of all) {
+      if (e.actorId && UUID_RE.test(e.actorId)) set.add(e.actorId);
+      if (
+        e.resourceId &&
+        UUID_RE.test(e.resourceId) &&
+        (e.resource ?? "").toLowerCase() === "user"
+      ) {
+        set.add(e.resourceId);
+      }
+    }
+    return Array.from(set);
+  }, [all]);
+
+  useEffect(() => {
+    const missing = userIdsToResolve.filter((id) => !(id in userNames));
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      missing.map(async (id) => {
+        try {
+          const u = await getUser(id);
+          return [id, u.name?.trim() || u.email?.trim() || UNKNOWN] as const;
+        } catch {
+          return [id, UNKNOWN] as const;
+        }
+      }),
+    ).then((results) => {
+      if (cancelled) return;
+      setUserNames((prev) => {
+        const next = { ...prev };
+        for (const [id, name] of results) next[id] = name;
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userIdsToResolve, userNames]);
+
+  const displayName = (id: string | undefined, resource?: string): string => {
+    if (!id) return "—";
+    const isUserRef = !resource || resource.toLowerCase() === "user";
+    if (!isUserRef || !UUID_RE.test(id)) return id;
+    const cached = userNames[id];
+    if (!cached || cached === UNKNOWN) return shortenId(id);
+    return cached;
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return all;
     return all.filter((e) => {
       const hay = [
         e.actorId,
+        userNames[e.actorId],
         e.action,
         e.resource,
         e.resourceId,
+        userNames[e.resourceId],
         e.ip,
         JSON.stringify(e.details ?? {}),
       ]
-        .filter(Boolean)
+        .filter((v) => v && v !== UNKNOWN)
         .join(" ")
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [all, search]);
+  }, [all, search, userNames]);
 
   if (!auth.isLoaded) return <Skeleton />;
 
@@ -169,13 +231,25 @@ export function AuditLogScreen() {
                       {formatTimestamp(e.timestamp)}
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top text-xs">{e.actorId}</td>
+                  <td className="px-4 py-3 align-top">
+                    <div className="text-sm">{displayName(e.actorId)}</div>
+                    {UUID_RE.test(e.actorId ?? "") ? (
+                      <div
+                        className="mt-0.5 font-mono text-[10px] text-zinc-500"
+                        title={e.actorId}
+                      >
+                        {shortenId(e.actorId)}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3 align-top">
                     <div className="font-medium">{e.action}</div>
                   </td>
                   <td className="px-4 py-3 align-top">
                     <div>{e.resource}</div>
-                    <div className="text-xs text-zinc-500">{e.resourceId}</div>
+                    <div className="text-xs text-zinc-500">
+                      {displayName(e.resourceId, e.resource)}
+                    </div>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 align-top font-mono text-xs text-zinc-500">
                     {e.ip}
@@ -188,6 +262,11 @@ export function AuditLogScreen() {
       )}
     </div>
   );
+}
+
+function shortenId(id: string | undefined): string {
+  if (!id) return "—";
+  return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
 }
 
 function computeCutoff(range: RangeKey): string | null {

@@ -252,6 +252,8 @@ export interface Hospital {
   branchCount: number;
   /** ID of the user who onboarded the hospital, or null if unattributed. */
   createdById: string | null;
+  /** Display name of the user who onboarded the hospital (as returned by the API). */
+  created_by?: string | null;
   /** Identifier shown on each card — phone-shaped 10 digit number. */
   nyraAiNumber: string;
 }

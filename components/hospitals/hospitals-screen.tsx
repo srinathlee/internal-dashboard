@@ -1,7 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Building2, Plus, Search } from "lucide-react";
+import {
+  Building2,
+  Check,
+  ChevronDown,
+  Plus,
+  Search,
+  UserCircle2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -15,9 +22,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth";
 import { errorMessage } from "@/lib/hooks/use-async";
 import { useHospitals } from "@/lib/hooks/use-hospitals";
+import { cn } from "@/lib/utils";
 
 import { CreateHospitalModal } from "./create-hospital-modal";
 import { EditHospitalModal } from "./edit-hospital-modal";
@@ -32,7 +45,7 @@ const SORTS: { value: SortKey; label: string }[] = [
   { value: "users-desc", label: "Most appointments" },
 ];
 
-const ALL_CITY = "__all__";
+const ALL_CREATORS = "__all__";
 
 /**
  * "All hospitals" is the rep's clinic directory.
@@ -46,13 +59,12 @@ export function HospitalsScreen() {
   const auth = useAuth();
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("name-asc");
-  const [city, setCity] = useState<string>(ALL_CITY);
+  const [creator, setCreator] = useState<string>(ALL_CREATORS);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const hospitalsQuery = useHospitals({
     q: search.trim() || undefined,
-    city: city === ALL_CITY ? undefined : city,
     limit: 100,
   });
 
@@ -61,15 +73,25 @@ export function HospitalsScreen() {
 
   const hospitals = hospitalsQuery.data?.hospitals ?? [];
 
-  const cities = useMemo(
-    () =>
-      Array.from(new Set(hospitals.map((h) => h.city).filter(Boolean))).sort(),
-    [hospitals],
-  );
+  // The API returns `created_by` as a display name string (e.g. "prudhvi"),
+  // so we can group/filter directly on it — no user-id lookup needed.
+  const creators = useMemo(() => {
+    const set = new Set<string>();
+    for (const h of hospitals) {
+      const name = h.created_by?.trim();
+      if (name) set.add(name);
+    }
+    return Array.from(set)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({ id: name, name }));
+  }, [hospitals]);
+
+  const selectedCreatorName =
+    creator === ALL_CREATORS ? "All creators" : creator;
 
   const filtered = useMemo(() => {
     let list = hospitals.filter((h) => {
-      if (city !== ALL_CITY && h.city !== city) return false;
+      if (creator !== ALL_CREATORS && h.created_by !== creator) return false;
       return true;
     });
     list = [...list].sort((a, b) => {
@@ -85,7 +107,7 @@ export function HospitalsScreen() {
       }
     });
     return list;
-  }, [hospitals, city, sort]);
+  }, [hospitals, creator, sort]);
 
   if (!auth.isLoaded) return <Skeleton />;
 
@@ -154,22 +176,12 @@ export function HospitalsScreen() {
             />
           </div>
 
-          <Select value={city} onValueChange={setCity}>
-            <SelectTrigger
-              className="h-10 w-full sm:w-[10rem]"
-              aria-label="Filter by city"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL_CITY}>All cities</SelectItem>
-              {cities.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <CreatorFilter
+            creators={creators}
+            selected={creator}
+            selectedName={selectedCreatorName}
+            onChange={setCreator}
+          />
 
           <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
             <SelectTrigger
@@ -197,7 +209,7 @@ export function HospitalsScreen() {
         <Skeleton inline />
       ) : filtered.length === 0 ? (
         <Card className="p-12 text-center text-sm text-zinc-500">
-          {search || city !== ALL_CITY
+          {search || creator !== ALL_CREATORS
             ? "No hospitals match the current filters."
             : "No hospitals to show yet."}
         </Card>
@@ -215,6 +227,128 @@ export function HospitalsScreen() {
         </div>
       )}
     </div>
+  );
+}
+
+function CreatorFilter({
+  creators,
+  selected,
+  selectedName,
+  onChange,
+}: {
+  creators: { id: string; name: string }[];
+  selected: string;
+  selectedName: string;
+  onChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return creators;
+    return creators.filter((c) => c.name.toLowerCase().includes(q));
+  }, [creators, query]);
+
+  return (
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Filter by creator"
+          className="inline-flex h-10 w-full items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900 sm:w-[12rem]"
+        >
+          <UserCircle2 className="h-4 w-4 shrink-0 text-zinc-400" aria-hidden />
+          <span className="min-w-0 flex-1 truncate text-left">
+            {selectedName}
+          </span>
+          <ChevronDown
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-zinc-400 transition-transform",
+              open && "rotate-180",
+            )}
+            aria-hidden
+          />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64 p-0">
+        <div className="border-b border-zinc-200 p-2 dark:border-zinc-800">
+          <div className="relative">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
+            />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search..."
+              className="h-8 border-zinc-200 pl-7 text-sm dark:border-zinc-800"
+              autoFocus
+            />
+          </div>
+        </div>
+
+        <ul className="max-h-72 overflow-y-auto py-1">
+          <li>
+            <button
+              type="button"
+              onClick={() => {
+                onChange(ALL_CREATORS);
+                setOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition-colors",
+                selected === ALL_CREATORS
+                  ? "bg-sky-50 font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                  : "text-zinc-900 hover:bg-zinc-50 dark:text-zinc-100 dark:hover:bg-zinc-900",
+              )}
+            >
+              <span>All creators</span>
+              {selected === ALL_CREATORS ? (
+                <Check className="h-3.5 w-3.5" aria-hidden />
+              ) : null}
+            </button>
+          </li>
+          {filtered.length === 0 ? (
+            <li className="px-3 py-6 text-center text-xs text-zinc-500">
+              No matching creators.
+            </li>
+          ) : (
+            filtered.map((c) => {
+              const isSelected = selected === c.id;
+              return (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange(c.id);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition-colors",
+                      isSelected
+                        ? "bg-sky-50 font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                        : "text-zinc-900 hover:bg-zinc-50 dark:text-zinc-100 dark:hover:bg-zinc-900",
+                    )}
+                  >
+                    <span className="truncate">{c.name}</span>
+                    {isSelected ? (
+                      <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })
+          )}
+        </ul>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -453,13 +453,13 @@ function ReportingPeriodPicker({
             value={value.value}
             onValueChange={(v) => onChange({ mode: value.mode, value: v })}
           >
-            <SelectTrigger className="h-9 w-[14rem]">
+            <SelectTrigger className="h-9 w-auto min-w-[14rem] max-w-full">
               <SelectValue>
-                <span className="flex items-center gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                <span className="flex min-w-0 items-center gap-2 whitespace-nowrap">
+                  <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                     {value.mode}
                   </span>
-                  <span>
+                  <span className="truncate">
                     {options.find((o) => o.value === value.value)?.label ??
                       value.value}
                   </span>
