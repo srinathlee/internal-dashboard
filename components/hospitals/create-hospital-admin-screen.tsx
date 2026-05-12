@@ -16,13 +16,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useHospital } from "@/lib/hooks/use-hospitals";
 import { createHospitalAdmin } from "@/lib/api/users";
 import { errorMessage } from "@/lib/hooks/use-async";
@@ -39,7 +32,6 @@ export function CreateHospitalAdminScreen({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [status, setStatus] = useState<"active" | "inactive">("active");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -49,7 +41,9 @@ export function CreateHospitalAdminScreen({
   const validate = (): string | null => {
     if (!name.trim()) return "Name is required.";
     if (!email.trim()) return "Email is required.";
-    if (!/^\S+@\S+\.\S+$/.test(email.trim())) return "Email looks invalid.";
+    if (!/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(email.trim())) {
+      return "Email looks invalid.";
+    }
     if (!phone.trim()) return "Phone is required.";
     if (!/^\d{10}$/.test(phone.replace(/\D/g, "").slice(-10))) {
       return "Phone must be a 10-digit number.";
@@ -75,7 +69,6 @@ export function CreateHospitalAdminScreen({
         phone: `+91${phoneDigits}`,
         password,
         hospital_id: hospitalId,
-        status,
       });
       toast.success("Hospital admin created");
       router.push(backHref);
@@ -147,20 +140,6 @@ export function CreateHospitalAdminScreen({
                 inputMode="numeric"
                 placeholder="10-digit number"
               />
-            </Field>
-            <Field label="Status">
-              <Select
-                value={status}
-                onValueChange={(v) => setStatus(v as "active" | "inactive")}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
             </Field>
           </div>
 

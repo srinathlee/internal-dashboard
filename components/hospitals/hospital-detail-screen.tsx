@@ -35,12 +35,29 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
 import { useAsync, errorMessage } from "@/lib/hooks/use-async";
 import { useHospital } from "@/lib/hooks/use-hospitals";
-import { listBranchesForHospital } from "@/lib/api/branches";
+import { deleteHospital, setHospitalStatus } from "@/lib/api/hospitals";
+import {
+  deleteBranch,
+  listBranchesForHospital,
+  type Branch,
+} from "@/lib/api/branches";
+import { listUsersForHospital, type HospitalUser } from "@/lib/api/users";
+import { EditHospitalModal } from "@/components/hospitals/edit-hospital-modal";
+import { CreateBranchModal } from "@/components/hospitals/create-branch-modal";
+import { EditBranchModal } from "@/components/hospitals/edit-branch-modal";
 import {
   assignSubscription,
   getHospitalSubscription,
@@ -73,8 +90,16 @@ const COMMITMENTS: { id: BillingCycle; label: string; days: number }[] = [
 
 export function HospitalDetailScreen({ hospitalId }: { hospitalId: string }) {
   const auth = useAuth();
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("overview");
   const hospitalQuery = useHospital(hospitalId);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [addBranchOpen, setAddBranchOpen] = useState(false);
+  const [branchesRefreshKey, setBranchesRefreshKey] = useState(0);
+  const [statusBusy, setStatusBusy] = useState(false);
 
   if (!auth.isLoaded || (hospitalQuery.isLoading && !hospitalQuery.data)) {
     return <Skeleton />;
@@ -120,6 +145,41 @@ export function HospitalDetailScreen({ hospitalId }: { hospitalId: string }) {
     ...hospitalQuery.data,
     id: hospitalQuery.data.id ?? hospitalId,
   };
+  const currentStatus =
+    (hospital as Hospital & { status?: string }).status ?? "ACTIVE";
+  const isActive = currentStatus.toUpperCase() === "ACTIVE";
+
+  const handleToggleStatus = async () => {
+    const nextStatus: "ACTIVE" | "INACTIVE" = isActive ? "INACTIVE" : "ACTIVE";
+    setStatusBusy(true);
+    try {
+      await setHospitalStatus(hospital.id, nextStatus);
+      toast.success(
+        nextStatus === "ACTIVE" ? "Hospital activated" : "Hospital deactivated",
+      );
+      void hospitalQuery.refetch();
+    } catch (err) {
+      toast.error("Couldn't update status", { description: errorMessage(err) });
+    } finally {
+      setStatusBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteHospital(hospital.id);
+      toast.success(`Deleted ${hospital.name}`);
+      setDeleteOpen(false);
+      router.push("/hospitals");
+    } catch (err) {
+      toast.error("Couldn't delete hospital", {
+        description: errorMessage(err),
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -134,18 +194,90 @@ export function HospitalDetailScreen({ hospitalId }: { hospitalId: string }) {
             View and manage hospital information
           </p>
         </div>
-        <StatusPill status={(hospital as Hospital & { status?: string }).status ?? "ACTIVE"} />
+        <div className="flex items-center gap-2">
+          <StatusPill status={currentStatus} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleToggleStatus}
+            disabled={statusBusy}
+          >
+            {statusBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            {isActive ? "Deactivate" : "Activate"}
+          </Button>
+        </div>
       </div>
 
       <TabBar value={tab} onChange={setTab} />
 
       {tab === "overview" ? (
-        <OverviewTab hospital={hospital} />
+        <OverviewTab
+          hospital={hospital}
+          branchesRefreshKey={branchesRefreshKey}
+          onEdit={() => setEditOpen(true)}
+          onDelete={() => setDeleteOpen(true)}
+          onAddBranch={() => setAddBranchOpen(true)}
+        />
       ) : tab === "plan" ? (
         <PlanSubscriptionTab hospitalId={hospital.id} />
       ) : (
         <PaymentGatewayTab hospitalId={hospital.id} />
       )}
+
+      <EditHospitalModal
+        open={editOpen}
+        hospitalId={hospital.id}
+        onOpenChange={setEditOpen}
+        onSaved={() => {
+          void hospitalQuery.refetch();
+        }}
+      />
+
+      <CreateBranchModal
+        open={addBranchOpen}
+        hospitalId={hospital.id}
+        onOpenChange={setAddBranchOpen}
+        onCreated={() => setBranchesRefreshKey((k) => k + 1)}
+      />
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-700 dark:text-rose-300">
+              <Trash2 className="h-4 w-4" aria-hidden />
+              Delete hospital
+            </DialogTitle>
+            <DialogDescription>
+              This soft-deletes <strong>{hospital.name}</strong>. It will be
+              hidden from listings but can be restored by a super admin from the
+              backend.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-rose-600 hover:bg-rose-700"
+            >
+              {deleting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              Delete hospital
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -226,36 +358,185 @@ function TabBar({
 // OVERVIEW TAB
 // =================================================================
 
-function OverviewTab({ hospital }: { hospital: Hospital }) {
+function OverviewTab({
+  hospital,
+  branchesRefreshKey,
+  onEdit,
+  onDelete,
+  onAddBranch,
+}: {
+  hospital: Hospital;
+  branchesRefreshKey: number;
+  onEdit: () => void;
+  onDelete: () => void;
+  onAddBranch: () => void;
+}) {
   const branches = useAsync(
     (signal) => listBranchesForHospital(hospital.id, signal).catch(() => []),
+    [hospital.id, branchesRefreshKey],
+  );
+  const users = useAsync(
+    (signal) =>
+      listUsersForHospital(hospital.id, signal).catch(
+        () => [] as HospitalUser[],
+      ),
     [hospital.id],
   );
   const branchList = branches.data ?? [];
+  const userList = users.data ?? [];
+  const grouped = useMemo(() => groupUsersByRole(userList), [userList]);
 
-  // The current Hospital type only has aggregate counts (adminCount, userCount,
-  // branchCount) — not per-row people lists. The richer cards below fall back
-  // to "list-not-available" copy when the new endpoints aren't ready.
+  const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
+  const [deletingBranch, setDeletingBranch] = useState<Branch | null>(null);
+  const [deletingBranchBusy, setDeletingBranchBusy] = useState(false);
+
+  const handleDeleteBranch = async () => {
+    if (!deletingBranch) return;
+    setDeletingBranchBusy(true);
+    try {
+      await deleteBranch(deletingBranch.id);
+      toast.success(`Deleted ${deletingBranch.name}`);
+      setDeletingBranch(null);
+      void branches.refetch();
+    } catch (err) {
+      toast.error("Couldn't delete branch", {
+        description: errorMessage(err),
+      });
+    } finally {
+      setDeletingBranchBusy(false);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <div className="space-y-4 lg:col-span-2">
         <BasicInformationCard hospital={hospital} />
         <NyraAINumberCard hospital={hospital} />
-        <BranchesCard branches={branchList} isLoading={branches.isLoading} />
-        <HospitalAdminsCard hospital={hospital} />
-        <BranchManagersCard hospital={hospital} />
-        <DoctorsCard hospital={hospital} />
-        <ReceptionistsCard hospital={hospital} />
+        <BranchesCard
+          branches={branchList}
+          isLoading={branches.isLoading}
+          onAdd={onAddBranch}
+          onEdit={setEditingBranch}
+          onDelete={setDeletingBranch}
+        />
+        <EditBranchModal
+          open={editingBranch !== null}
+          branch={editingBranch}
+          onOpenChange={(open) => {
+            if (!open) setEditingBranch(null);
+          }}
+          onSaved={() => void branches.refetch()}
+        />
+        <Dialog
+          open={deletingBranch !== null}
+          onOpenChange={(open) => {
+            if (!open && !deletingBranchBusy) setDeletingBranch(null);
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-rose-700 dark:text-rose-300">
+                <Trash2 className="h-4 w-4" aria-hidden />
+                Delete branch
+              </DialogTitle>
+              <DialogDescription>
+                This permanently deletes{" "}
+                <strong>{deletingBranch?.name}</strong>. Users assigned to this
+                branch will lose access.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeletingBranch(null)}
+                disabled={deletingBranchBusy}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleDeleteBranch}
+                disabled={deletingBranchBusy}
+                className="bg-rose-600 hover:bg-rose-700"
+              >
+                {deletingBranchBusy ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                Delete branch
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <HospitalAdminsCard hospital={hospital} users={grouped.admins} />
+        <BranchManagersCard hospitalId={hospital.id} users={grouped.managers} />
+        <DoctorsCard hospitalId={hospital.id} users={grouped.doctors} />
+        <ReceptionistsCard
+          hospitalId={hospital.id}
+          users={grouped.receptionists}
+        />
         <ClinicConfigCard hospital={hospital} />
       </div>
       <div className="space-y-4">
         <StatisticsCard
-          hospital={hospital}
-          branches={branchList.length || hospital.branchCount}
+          totalUsers={userList.length}
+          admins={grouped.admins.length}
+          managers={grouped.managers.length}
+          doctors={grouped.doctors.length}
+          receptionists={grouped.receptionists.length}
+          branches={branchList.length}
         />
-        <ActionsCard hospital={hospital} />
+        <ActionsCard
+          hospital={hospital}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
         <AdditionalInfoCard hospital={hospital} />
       </div>
+    </div>
+  );
+}
+
+function groupUsersByRole(users: HospitalUser[]) {
+  const groups: Record<
+    "admins" | "managers" | "doctors" | "receptionists",
+    HospitalUser[]
+  > = { admins: [], managers: [], doctors: [], receptionists: [] };
+  for (const u of users) {
+    const role = (u.role ?? "").toUpperCase();
+    if (role === "HOSPITAL_ADMIN" || role === "ADMIN") groups.admins.push(u);
+    else if (role === "BRANCH_ADMIN") groups.managers.push(u);
+    else if (role === "DOCTOR") groups.doctors.push(u);
+    else if (role === "RECEPTIONIST") groups.receptionists.push(u);
+  }
+  return groups;
+}
+
+function UserRow({
+  user,
+  hospitalId,
+}: {
+  user: HospitalUser;
+  hospitalId: string;
+}) {
+  const meta = [user.email, user.phone].filter(Boolean).join(" • ");
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-md border border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium">
+          {user.name ?? "Unnamed"}
+        </div>
+        {meta ? (
+          <div className="mt-0.5 truncate text-xs text-zinc-500">{meta}</div>
+        ) : null}
+      </div>
+      <Link
+        href={`/hospitals/${hospitalId}/users/${user.id}`}
+        aria-label={`View ${user.name ?? "user"}`}
+        className="shrink-0 rounded-md p-1.5 text-sky-600 transition-colors hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-950/40"
+      >
+        <Eye className="h-4 w-4" aria-hidden />
+      </Link>
     </div>
   );
 }
@@ -329,15 +610,23 @@ function Detail({
 function BasicInformationCard({ hospital }: { hospital: Hospital }) {
   const h = hospital as Hospital & {
     email?: string | null;
+    phone?: string | null;
     emergency_phone?: string | null;
     location?: string[] | null;
+    address?: string | null;
     hospital_type?: string | string[] | null;
+    created_by?: string | null;
   };
   const types = Array.isArray(h.hospital_type)
     ? h.hospital_type
     : h.hospital_type
       ? [h.hospital_type]
       : [];
+  const dash = <span className="text-zinc-400">—</span>;
+  const locationText =
+    Array.isArray(h.location) && h.location.length > 0
+      ? h.location.join(", ")
+      : hospital.city || "";
   return (
     <SectionCard icon={Building2} title="Basic information">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -345,34 +634,37 @@ function BasicInformationCard({ hospital }: { hospital: Hospital }) {
         <Detail
           icon={MapPin}
           label="Location"
-          value={
-            (Array.isArray(h.location) && h.location.length > 0
-              ? h.location.join(", ")
-              : hospital.city) || (
-              <span className="text-zinc-400">—</span>
-            )
-          }
+          value={locationText || dash}
         />
         <Detail
           icon={Phone}
           label="Phone"
-          value={hospital.nyraAiNumber ?? <span className="text-zinc-400">—</span>}
+          value={h.phone ?? dash}
         />
         <Detail
           icon={Phone}
           label="Emergency phone"
-          value={h.emergency_phone ?? <span className="text-zinc-400">—</span>}
-        />
-        <Detail
-          icon={UserCog}
-          label="Created by"
-          value={<span className="text-zinc-400">—</span>}
+          value={h.emergency_phone ?? dash}
         />
         <Detail
           icon={Mail}
           label="E-mail"
-          value={h.email ?? <span className="text-zinc-400">—</span>}
+          value={h.email ?? dash}
         />
+        <Detail
+          icon={UserCog}
+          label="Created by"
+          value={h.created_by ?? dash}
+        />
+        {h.address ? (
+          <div className="sm:col-span-2">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              <MapPin className="h-3 w-3" aria-hidden />
+              Address
+            </div>
+            <div className="mt-1 text-sm">{h.address}</div>
+          </div>
+        ) : null}
         <div className="sm:col-span-2">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
             Hospital type
@@ -400,22 +692,24 @@ function BasicInformationCard({ hospital }: { hospital: Hospital }) {
 // ---------- Nyra AI number ----------
 
 function NyraAINumberCard({ hospital }: { hospital: Hospital }) {
+  const h = hospital as Hospital & {
+    inbound_number?: string | null;
+    outbound_number?: string | null;
+  };
+  const inbound = h.inbound_number ?? hospital.nyraAiNumber ?? null;
+  const outbound = h.outbound_number ?? hospital.nyraAiNumber ?? null;
   return (
     <SectionCard icon={Phone} title="Nyra AI number" iconTone="violet">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Detail
           icon={Hash}
           label="Inbound number"
-          value={
-            <span className="font-mono">{hospital.nyraAiNumber ?? "—"}</span>
-          }
+          value={<span className="font-mono">{inbound ?? "—"}</span>}
         />
         <Detail
           icon={Hash}
           label="Outbound number"
-          value={
-            <span className="font-mono">{hospital.nyraAiNumber ?? "—"}</span>
-          }
+          value={<span className="font-mono">{outbound ?? "—"}</span>}
         />
       </div>
     </SectionCard>
@@ -427,20 +721,22 @@ function NyraAINumberCard({ hospital }: { hospital: Hospital }) {
 function BranchesCard({
   branches,
   isLoading,
+  onAdd,
+  onEdit,
+  onDelete,
 }: {
-  branches: { id: string; name: string; status?: string }[];
+  branches: Branch[];
   isLoading: boolean;
+  onAdd: () => void;
+  onEdit: (branch: Branch) => void;
+  onDelete: (branch: Branch) => void;
 }) {
   return (
     <SectionCard
       icon={Building2}
       title={`Branches (${branches.length})`}
       action={
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => toast("Add branch — coming soon")}
-        >
+        <Button variant="outline" size="sm" onClick={onAdd}>
           <Plus className="h-3.5 w-3.5" />
           Add branch
         </Button>
@@ -453,12 +749,60 @@ function BranchesCard({
       ) : (
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {branches.map((b) => (
-            <li
-              key={b.id}
-              className="flex items-center justify-between py-2.5 text-sm"
-            >
-              <span className="font-medium">{b.name}</span>
-              <StatusPill status={b.status ?? "ACTIVE"} />
+            <li key={b.id} className="py-3 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-medium">{b.name}</div>
+                  {b.address ? (
+                    <div className="mt-0.5 flex items-start gap-1.5 text-xs text-zinc-500">
+                      <MapPin
+                        className="mt-0.5 h-3 w-3 shrink-0"
+                        aria-hidden
+                      />
+                      <span className="break-words">{b.address}</span>
+                    </div>
+                  ) : null}
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">
+                    {b.phone ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Phone className="h-3 w-3" aria-hidden />
+                        <span className="font-mono">{b.phone}</span>
+                      </span>
+                    ) : null}
+                    {b.email ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Mail className="h-3 w-3" aria-hidden />
+                        {b.email}
+                      </span>
+                    ) : null}
+                    {b.timezone ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Clock className="h-3 w-3" aria-hidden />
+                        {b.timezone}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <StatusPill status={b.status ?? "ACTIVE"} />
+                  <button
+                    type="button"
+                    onClick={() => onEdit(b)}
+                    aria-label={`Edit ${b.name}`}
+                    className="rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(b)}
+                    aria-label={`Delete ${b.name}`}
+                    className="rounded-md p-1.5 text-rose-600 transition-colors hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </div>
+              </div>
             </li>
           ))}
         </ul>
@@ -473,12 +817,18 @@ function BranchesCard({
 // a "Add" affordance so the page reads cleanly while the backend wires
 // the corresponding list endpoints.
 
-function HospitalAdminsCard({ hospital }: { hospital: Hospital }) {
+function HospitalAdminsCard({
+  hospital,
+  users,
+}: {
+  hospital: Hospital;
+  users: HospitalUser[];
+}) {
   return (
     <SectionCard
       icon={ShieldCheck}
-      title={`Hospital admins (${hospital.adminCount})`}
-      iconTone="violet"
+      title={`Hospital admins (${users.length})`}
+      iconTone="sky"
       action={
         <Button asChild size="sm">
           <Link href={`/hospitals/${hospital.id}/admins/new`}>
@@ -488,49 +838,97 @@ function HospitalAdminsCard({ hospital }: { hospital: Hospital }) {
         </Button>
       }
     >
-      {hospital.adminCount === 0 ? (
+      {users.length === 0 ? (
         <p className="text-sm text-zinc-500">No hospital admins assigned.</p>
       ) : (
-        <p className="text-sm text-zinc-500">
-          {hospital.adminCount} admin
-          {hospital.adminCount === 1 ? "" : "s"} on this hospital. Roster
-          listing pending backend endpoint.
-        </p>
+        <div className="space-y-2">
+          {users.map((u) => (
+            <UserRow key={u.id} user={u} hospitalId={hospital.id} />
+          ))}
+        </div>
       )}
     </SectionCard>
   );
 }
 
-function BranchManagersCard({ hospital: _h }: { hospital: Hospital }) {
+function BranchManagersCard({
+  hospitalId,
+  users,
+}: {
+  hospitalId: string;
+  users: HospitalUser[];
+}) {
   return (
     <SectionCard
       icon={Users}
-      title="Branch managers (0)"
+      title={`Branch managers (${users.length})`}
       iconTone="sky"
     >
-      <p className="text-sm text-zinc-500">
-        No branch managers assigned to this hospital.
-      </p>
+      {users.length === 0 ? (
+        <p className="text-sm text-zinc-500">
+          No branch managers assigned to this hospital.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {users.map((u) => (
+            <UserRow key={u.id} user={u} hospitalId={hospitalId} />
+          ))}
+        </div>
+      )}
     </SectionCard>
   );
 }
 
-function DoctorsCard({ hospital: _h }: { hospital: Hospital }) {
-  return (
-    <SectionCard icon={UserIcon} title="Doctors (0)" iconTone="violet">
-      <p className="text-sm text-zinc-500">No doctors yet.</p>
-    </SectionCard>
-  );
-}
-
-function ReceptionistsCard({ hospital: _h }: { hospital: Hospital }) {
+function DoctorsCard({
+  hospitalId,
+  users,
+}: {
+  hospitalId: string;
+  users: HospitalUser[];
+}) {
   return (
     <SectionCard
       icon={UserIcon}
-      title="Receptionists (0)"
+      title={`Doctors (${users.length})`}
       iconTone="sky"
     >
-      <p className="text-sm text-zinc-500">No receptionists for this hospital.</p>
+      {users.length === 0 ? (
+        <p className="text-sm text-zinc-500">No doctors yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {users.map((u) => (
+            <UserRow key={u.id} user={u} hospitalId={hospitalId} />
+          ))}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+function ReceptionistsCard({
+  hospitalId,
+  users,
+}: {
+  hospitalId: string;
+  users: HospitalUser[];
+}) {
+  return (
+    <SectionCard
+      icon={UserIcon}
+      title={`Receptionists (${users.length})`}
+      iconTone="sky"
+    >
+      {users.length === 0 ? (
+        <p className="text-sm text-zinc-500">
+          No receptionists for this hospital.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {users.map((u) => (
+            <UserRow key={u.id} user={u} hospitalId={hospitalId} />
+          ))}
+        </div>
+      )}
     </SectionCard>
   );
 }
@@ -654,18 +1052,26 @@ function ClinicConfigCard({ hospital }: { hospital: Hospital }) {
 // ---------- Right-column cards ----------
 
 function StatisticsCard({
-  hospital,
+  totalUsers,
+  admins,
+  managers,
+  doctors,
+  receptionists,
   branches,
 }: {
-  hospital: Hospital;
+  totalUsers: number;
+  admins: number;
+  managers: number;
+  doctors: number;
+  receptionists: number;
   branches: number;
 }) {
   const rows = [
-    { label: "Total users", value: hospital.userCount },
-    { label: "Admins", value: hospital.adminCount },
-    { label: "Managers", value: 0 },
-    { label: "Doctors", value: 0 },
-    { label: "Receptionists", value: 0 },
+    { label: "Total users", value: totalUsers },
+    { label: "Admins", value: admins },
+    { label: "Managers", value: managers },
+    { label: "Doctors", value: doctors },
+    { label: "Receptionists", value: receptionists },
     { label: "Branches", value: branches },
   ];
   return (
@@ -685,13 +1091,21 @@ function StatisticsCard({
   );
 }
 
-function ActionsCard({ hospital }: { hospital: Hospital }) {
+function ActionsCard({
+  hospital,
+  onEdit,
+  onDelete,
+}: {
+  hospital: Hospital;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   return (
     <SectionCard icon={Sparkles} title="Actions" iconTone="amber">
       <div className="space-y-2">
         <Button
           className="w-full justify-center bg-sky-600 hover:bg-sky-700"
-          onClick={() => toast("Edit hospital — coming soon")}
+          onClick={onEdit}
         >
           <Pencil className="h-3.5 w-3.5" />
           Edit hospital
@@ -717,11 +1131,7 @@ function ActionsCard({ hospital }: { hospital: Hospital }) {
         <Button
           variant="outline"
           className="w-full justify-center border-rose-200 text-rose-700 hover:bg-rose-50 dark:border-rose-900/40 dark:text-rose-300 dark:hover:bg-rose-950/40"
-          onClick={() =>
-            toast(`Delete ${hospital.name} — coming soon`, {
-              description: "Soft-delete via DELETE /api/hospitals/:id",
-            })
-          }
+          onClick={onDelete}
         >
           <Trash2 className="h-3.5 w-3.5" />
           Delete hospital
@@ -1236,10 +1646,14 @@ function SubscriptionHistory({
   events: SubscriptionEvent[];
   isLoading: boolean;
 }) {
-  if (isLoading && events.length === 0) {
+  // Backstop: the API has shipped a non-array shape here before (`events.map
+  // is not a function`). Coerce to an array so a wonky envelope never crashes
+  // the tab.
+  const list = Array.isArray(events) ? events : [];
+  if (isLoading && list.length === 0) {
     return <Card className="h-24 animate-pulse" />;
   }
-  if (events.length === 0) {
+  if (list.length === 0) {
     return (
       <Card className="border-dashed p-6 text-center text-sm text-zinc-500">
         No subscription history yet.
@@ -1249,7 +1663,7 @@ function SubscriptionHistory({
   return (
     <Card className="overflow-hidden">
       <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-        {events.map((e) => (
+        {list.map((e) => (
           <li
             key={e.id}
             className="flex items-center justify-between px-4 py-3 text-sm"

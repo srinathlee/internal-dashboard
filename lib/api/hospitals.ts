@@ -8,6 +8,7 @@
  */
 
 import { ApiError, apiData, getApiBaseUrl, getAuthToken } from "./client";
+import { createHospitalAdmin } from "./users";
 import type { Hospital } from "../types";
 
 export interface ListHospitalsQuery {
@@ -148,13 +149,102 @@ export interface CreateHospitalResponse {
   };
 }
 
-export function createHospital(
+/**
+ * Body POSTed to `/api/hospitals` per spec §2 — flat shape with all fields at
+ * the top level. The wizard sends the legacy nested `CreateHospitalInput`, so
+ * `createHospital` flattens it before sending and then chains a separate
+ * `POST /api/users/hospital-admin` for the admin (spec §11).
+ */
+interface CreateHospitalSpecBody {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  emergency_phone?: string | null;
+  location?: string[] | null;
+  address?: string | null;
+  timezone?: string | null;
+  currency?: string | null;
+  hospital_image_url?: string | null;
+  start_language?: string | null;
+  hospital_type?: string | string[] | null;
+  status?: "ACTIVE" | "INACTIVE";
+  plan_id?: string | number | null;
+  billing_cycle?: "monthly" | "quarterly" | "half-yearly" | "yearly" | null;
+  subscription_payment_mode?: "online" | "offline" | "free" | null;
+  subscription_status?: "ACTIVE" | "INACTIVE" | "SUSPENDED" | "TRIAL" | null;
+  created_by?: string | null;
+}
+
+function toBillingCycle(
+  commitment: "monthly" | "quarterly" | "half_yearly" | "yearly",
+): CreateHospitalSpecBody["billing_cycle"] {
+  return commitment === "half_yearly" ? "half-yearly" : commitment;
+}
+
+export async function createHospital(
   input: CreateHospitalInput,
 ): Promise<CreateHospitalResponse> {
-  return apiData<CreateHospitalResponse>("/api/hospitals", {
+  const body: CreateHospitalSpecBody = {
+    name: input.name,
+    email: input.admin?.email ?? null,
+    phone: input.phone ?? null,
+    emergency_phone: input.emergency_phone ?? null,
+    location: input.location ? [input.location] : null,
+    address: input.address ?? null,
+    timezone: input.settings?.timezone ?? null,
+    currency: input.settings?.currency ?? null,
+    hospital_image_url: input.hospital_image_url ?? null,
+    start_language: input.settings?.preferred_ai_language ?? null,
+    hospital_type: input.hospital_type,
+    status: "ACTIVE",
+    created_by: input.created_by ?? null,
+  };
+  if (input.plan) {
+    body.plan_id = input.plan.plan_id;
+    body.billing_cycle = toBillingCycle(input.plan.commitment);
+    body.subscription_payment_mode = "offline";
+    body.subscription_status = "ACTIVE";
+  }
+
+  const hospital = await apiData<Hospital>("/api/hospitals", {
     method: "POST",
-    body: input,
+    body,
   });
+
+  let admin: CreateHospitalResponse["admin"] = {
+    id: "",
+    name: input.admin.name,
+    email: input.admin.email,
+  };
+
+  if (input.admin?.email && input.admin?.password) {
+    try {
+      const created = await createHospitalAdmin({
+        name: input.admin.name,
+        email: input.admin.email,
+        phone: input.admin.phone,
+        password: input.admin.password,
+        hospital_id: hospital.id,
+      });
+      admin = {
+        id: created.id,
+        name: created.name,
+        email: created.email,
+      };
+    } catch (err) {
+      // Hospital exists — surface the chained failure so the caller can show
+      // "hospital created but admin failed", instead of silently swallowing.
+      throw new ApiError(
+        500,
+        `Hospital ${hospital.name} created, but admin user creation failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        { hospital, error: err },
+      );
+    }
+  }
+
+  return { hospital, admin };
 }
 
 /**
@@ -234,6 +324,28 @@ export function updateHospitalImage(
 export function deleteHospitalImage(id: string): Promise<void> {
   return apiData<void>(`/api/hospitals/${id}/image`, {
     method: "DELETE",
+  });
+}
+
+/**
+ * Soft-delete a hospital (sets `deleted_at` server-side). Super admin only.
+ * Spec §7.
+ */
+export function deleteHospital(id: string): Promise<void> {
+  return apiData<void>(`/api/hospitals/${id}`, { method: "DELETE" });
+}
+
+/**
+ * Toggle hospital active/inactive without sending the full update payload.
+ * Spec §6 — `PATCH /api/hospitals/:id/status`.
+ */
+export function setHospitalStatus(
+  id: string,
+  status: "ACTIVE" | "INACTIVE",
+): Promise<Hospital> {
+  return apiData<Hospital>(`/api/hospitals/${id}/status`, {
+    method: "PATCH",
+    body: { status },
   });
 }
 

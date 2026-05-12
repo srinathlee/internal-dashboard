@@ -168,7 +168,6 @@ export function CreateUserScreen({ hospitalId }: { hospitalId: string }) {
           phone: phoneOut,
           password,
           hospital_id: hospitalId,
-          status,
         });
       } else if (role === "BRANCH_ADMIN") {
         await createBranchAdmin({

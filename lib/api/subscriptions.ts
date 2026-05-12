@@ -64,12 +64,30 @@ export interface SubscriptionEvent {
   details?: Record<string, unknown>;
 }
 
-export function listSubscriptionPlans(
+/**
+ * Some endpoints wrap their list payloads in keys like `plans` / `events` /
+ * `history` / `items` even after `apiData` strips the outer `data` envelope.
+ * Pick the first array we can find so the UI always gets a real array.
+ */
+function pickArray<T>(raw: unknown, ...keys: string[]): T[] {
+  if (Array.isArray(raw)) return raw as T[];
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    for (const k of keys) {
+      if (Array.isArray(obj[k])) return obj[k] as T[];
+    }
+    // Some servers double-wrap (`{ data: { events: [...] } }`) — apiData
+    // unwraps once, leaving the inner object here.
+    if ("data" in obj) return pickArray<T>(obj.data, ...keys);
+  }
+  return [];
+}
+
+export async function listSubscriptionPlans(
   signal?: AbortSignal,
 ): Promise<SubscriptionPlan[]> {
-  return apiData<SubscriptionPlan[]>("/api/v1/subscriptions/plans", {
-    signal,
-  });
+  const raw = await apiData<unknown>("/api/v1/subscriptions/plans", { signal });
+  return pickArray<SubscriptionPlan>(raw, "plans", "items");
 }
 
 export interface AssignSubscriptionInput {
@@ -90,22 +108,28 @@ export function assignSubscription(
   });
 }
 
-export function getHospitalSubscription(
+export async function getHospitalSubscription(
   hospitalId: string,
   signal?: AbortSignal,
 ): Promise<HospitalSubscription | null> {
-  return apiData<HospitalSubscription | null>(
+  const raw = await apiData<unknown>(
     `/api/v1/subscriptions/hospital/${hospitalId}`,
     { signal },
   );
+  if (!raw) return null;
+  if (typeof raw === "object" && "subscription" in raw) {
+    return (raw as { subscription: HospitalSubscription }).subscription;
+  }
+  return raw as HospitalSubscription;
 }
 
-export function getHospitalSubscriptionHistory(
+export async function getHospitalSubscriptionHistory(
   hospitalId: string,
   signal?: AbortSignal,
 ): Promise<SubscriptionEvent[]> {
-  return apiData<SubscriptionEvent[]>(
+  const raw = await apiData<unknown>(
     `/api/v1/subscriptions/hospital/${hospitalId}/history`,
     { signal },
   );
+  return pickArray<SubscriptionEvent>(raw, "events", "history", "items");
 }
