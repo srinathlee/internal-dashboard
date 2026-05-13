@@ -65,8 +65,13 @@ export const NAV_ITEMS: NavItem[] = [
     // Sales members and sales admins live inside the Sales Team section —
     // their per-tab views (Pipeline, Scorecard, etc.) cover the same ground
     // a generic dashboard would, so the Dashboard entry is hidden for them.
+    // Super admin doesn't get a dedicated Dashboard either; the org-wide
+    // surfaces (Hospitals, Performance, Teams) cover what they need.
     show: (a) =>
-      a.can("performance:read:self") && !isSalesMember(a) && !isSalesAdmin(a),
+      a.can("performance:read:self") &&
+      !isSalesMember(a) &&
+      !isSalesAdmin(a) &&
+      a.user?.role !== "super_admin",
   },
   {
     label: "Performance",
