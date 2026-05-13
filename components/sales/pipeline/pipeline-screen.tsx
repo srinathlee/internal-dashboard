@@ -16,19 +16,25 @@ import {
 } from "@/lib/access";
 import { resolveActorName } from "@/lib/format";
 import { formatCurrency } from "@/lib/format-metric";
-import { LEAD_STAGE_LABEL } from "@/lib/sales-leads-data";
 import {
-  KANBAN_STAGE_ORDER,
   isOpenStage,
+  stageDotClass,
+  stageLabel,
 } from "@/lib/sales-pipeline";
 import { cn } from "@/lib/utils";
 import {
   adaptLead,
   toApiReason,
   toApiStage,
+  toLocalStage,
 } from "@/lib/api/adapters";
 import { useLeadMutations, useLeadPeople, usePipeline } from "@/lib/hooks/use-leads";
+import {
+  usePipelineStageMutations,
+  usePipelineStages,
+} from "@/lib/hooks/use-pipeline-stages";
 import { errorMessage } from "@/lib/hooks/use-async";
+import type { PipelineStage } from "@/lib/api/sales-pipeline-stages";
 import type { Lead, LeadLostReason, LeadStage } from "@/lib/types";
 import type { User } from "@/lib/types";
 
@@ -40,6 +46,7 @@ import {
 import { MarkAsLostModal } from "./mark-as-lost-modal";
 import { PipelineColumn } from "./pipeline-column";
 import { SalesRepFilter } from "./sales-rep-filter";
+import { StageModal } from "./stage-modal";
 
 type ActiveFilter = "all" | "active" | "slow";
 
@@ -63,6 +70,34 @@ export function PipelineScreen() {
   });
   const peopleQuery = useLeadPeople();
   const mutations = useLeadMutations();
+  const stagesQuery = usePipelineStages();
+  const stageMutations = usePipelineStageMutations();
+  const stages = useMemo(() => {
+    const list = (stagesQuery.data ?? []).slice();
+    list.sort((a, b) => a.position - b.position);
+    return list;
+  }, [stagesQuery.data]);
+
+  // Local stage value for each fetched stage (defaults map via the
+  // adapter, custom stages pass through verbatim). Stable order so it
+  // drives the Kanban left-to-right.
+  const stageLocalKeys = useMemo(
+    () => stages.map((s) => toLocalStage(s.name)),
+    [stages],
+  );
+
+  const stageByLocalKey = useMemo(() => {
+    const m = new Map<string, PipelineStage>();
+    stages.forEach((s, i) => {
+      const key = stageLocalKeys[i];
+      if (key) m.set(key, s);
+    });
+    return m;
+  }, [stages, stageLocalKeys]);
+
+  // Stage management UI state
+  const [stageModalOpen, setStageModalOpen] = useState(false);
+  const [editingStage, setEditingStage] = useState<PipelineStage | null>(null);
 
   // Local mirror so optimistic stage moves render instantly. Re-seeded on
   // every successful pipeline fetch.
@@ -150,20 +185,14 @@ export function PipelineScreen() {
   }, [pipelineQuery.data]);
 
   const leadsByStage = useMemo(() => {
-    const groups: Record<LeadStage, Lead[]> = {
-      "cold-lead": [],
-      "first-contact": [],
-      "doctor-meeting": [],
-      "pitch-delivered": [],
-      "hot-lead": [],
-      "sprint-started": [],
-      "sprint-review": [],
-      "subscription-closed": [],
-      lost: [],
-    };
-    for (const lead of visibleLeads) groups[lead.stage].push(lead);
+    const groups: Record<string, Lead[]> = {};
+    for (const key of stageLocalKeys) groups[key] = [];
+    for (const lead of visibleLeads) {
+      const bucket = groups[lead.stage] ?? (groups[lead.stage] = []);
+      bucket.push(lead);
+    }
     return groups;
-  }, [visibleLeads]);
+  }, [visibleLeads, stageLocalKeys]);
 
   const findLead = (id: string) => leads.find((l) => l.id === id) ?? null;
 
@@ -237,7 +266,8 @@ export function PipelineScreen() {
   useEffect(() => {
     if (didInitialScroll.current) return;
     if (!pipelineQuery.data) return;
-    const firstWithLeads = KANBAN_STAGE_ORDER.find(
+    if (stageLocalKeys.length === 0) return;
+    const firstWithLeads = stageLocalKeys.find(
       (s) => (leadsByStage[s]?.length ?? 0) > 0,
     );
     didInitialScroll.current = true;
@@ -258,7 +288,7 @@ export function PipelineScreen() {
         el.offsetLeft - 16,
       );
     });
-  }, [pipelineQuery.data, leadsByStage]);
+  }, [pipelineQuery.data, leadsByStage, stageLocalKeys]);
 
   if (!auth.isLoaded) return <Skeleton />;
 
@@ -363,9 +393,41 @@ export function PipelineScreen() {
     moveLeadOptimistic(id, stage);
     void persistMove(id, stage, { fromStage });
     scrollToStage(stage);
-    toast.success(`Moved to ${LEAD_STAGE_LABEL[stage]}`, {
+    toast.success(`Moved to ${stageLabel(stage)}`, {
       description: lead.clinicName,
     });
+  };
+
+  const handleStageSubmit = async (input: { name: string; color: string }) => {
+    if (editingStage?.id) {
+      await stageMutations.update(editingStage.id, input);
+      toast.success("Stage updated");
+    } else {
+      await stageMutations.create(input);
+      toast.success(`Stage "${input.name}" created`);
+    }
+    void stagesQuery.refetch();
+    void pipelineQuery.refetch();
+  };
+
+  const handleDeleteStage = async (s: PipelineStage) => {
+    if (!s.id) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `Delete "${s.label}"? Leads in this stage will move back to New Leads.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await stageMutations.remove(s.id);
+      toast.success(`Stage "${s.label}" removed`);
+      void stagesQuery.refetch();
+      void pipelineQuery.refetch();
+    } catch (err) {
+      toast.error("Couldn't delete stage", { description: errorMessage(err) });
+    }
   };
 
   const handleConfirmLost = (
@@ -487,22 +549,61 @@ export function PipelineScreen() {
 
       <div ref={kanbanRef} className="-mx-4 overflow-x-auto px-4 pb-4">
         <div className="flex gap-3">
-          {KANBAN_STAGE_ORDER.map((stage) => (
-            <PipelineColumn
-              key={stage}
-              stage={stage}
-              leads={leadsByStage[stage]}
-              forecastMode={forecastMode}
-              draggingId={draggingId}
-              onDragStartCard={(lead) => setDraggingId(lead.id)}
-              onDragEndCard={() => setDraggingId(null)}
-              onDropOnColumn={handleDropOnColumn}
-              onCardClick={(lead) => {
-                setOpenLeadId(lead.id);
-                setSheetOpen(true);
+          {stages.map((s) => {
+            const localKey = toLocalStage(s.name);
+            return (
+              <PipelineColumn
+                key={s.id ?? s.name}
+                stage={localKey}
+                label={s.label || stageLabel(localKey)}
+                dotClass={stageDotClass(localKey)}
+                color={s.color}
+                isCustom={!s.is_default}
+                leads={leadsByStage[localKey] ?? []}
+                forecastMode={forecastMode}
+                draggingId={draggingId}
+                onDragStartCard={(lead) => setDraggingId(lead.id)}
+                onDragEndCard={() => setDraggingId(null)}
+                onDropOnColumn={handleDropOnColumn}
+                onCardClick={(lead) => {
+                  setOpenLeadId(lead.id);
+                  setSheetOpen(true);
+                }}
+                onEdit={
+                  adminLike && !s.is_default && s.id
+                    ? () => {
+                        setEditingStage(s);
+                        setStageModalOpen(true);
+                      }
+                    : undefined
+                }
+                onDelete={
+                  adminLike && !s.is_default && s.id
+                    ? () => void handleDeleteStage(s)
+                    : undefined
+                }
+              />
+            );
+          })}
+
+          {adminLike ? (
+            <button
+              type="button"
+              onClick={() => {
+                setEditingStage(null);
+                setStageModalOpen(true);
               }}
-            />
-          ))}
+              className="grid w-72 shrink-0 place-items-center rounded-xl border border-dashed border-zinc-300 bg-white/50 text-zinc-500 transition-colors hover:border-zinc-400 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-zinc-700 dark:bg-zinc-950/40 dark:hover:border-zinc-500 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
+              aria-label="Add custom stage"
+            >
+              <div className="flex flex-col items-center gap-1.5 py-12 text-xs font-medium">
+                <span className="grid h-9 w-9 place-items-center rounded-full bg-zinc-100 dark:bg-zinc-900">
+                  <Plus className="h-4 w-4" aria-hidden />
+                </span>
+                Add stage
+              </div>
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -530,7 +631,7 @@ export function PipelineScreen() {
           moveLeadOptimistic(leadId, next);
           void persistMove(leadId, next, { fromStage });
           scrollToStage(next);
-          toast.success(`Stage updated → ${LEAD_STAGE_LABEL[next]}`);
+          toast.success(`Stage updated → ${stageLabel(next)}`);
         }}
         onMutated={() => {
           // Refresh the pipeline so last_activity_at and recency buckets
@@ -557,6 +658,16 @@ export function PipelineScreen() {
         open={newLeadOpen}
         onOpenChange={setNewLeadOpen}
         onCreate={handleCreateLead}
+      />
+
+      <StageModal
+        open={stageModalOpen}
+        onOpenChange={(next) => {
+          setStageModalOpen(next);
+          if (!next) setEditingStage(null);
+        }}
+        stage={editingStage}
+        onSubmit={handleStageSubmit}
       />
     </div>
   );

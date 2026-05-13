@@ -24,6 +24,8 @@ import {
   type ListLeadsQuery,
   type PipelineQuery,
 } from "@/lib/api/sales-leads";
+import { getSalesPipeline } from "@/lib/api/sales-pipeline-stages";
+import { ApiError } from "@/lib/api/client";
 import type {
   ApiLead,
   ApiLeadStage,
@@ -71,7 +73,61 @@ export function useLeadActivities(
 
 export function usePipeline(q: PipelineQuery = {}) {
   return useAsync(
-    (signal) => getLeadsPipeline(q, signal),
+    async (signal) => {
+      // Try the new super-admin endpoint first — it returns custom stages
+      // alongside the defaults. If that route isn't deployed yet or fails
+      // outright, fall back to the legacy sales endpoint so older envs
+      // keep working.
+      const shouldFallback = (err: unknown) =>
+        err instanceof ApiError &&
+        // 4xx perms/route-not-found AND 5xx server errors both warrant a retry
+        // through the legacy endpoint. Without 500, a backend bug on the new
+        // route would error the whole screen even when the legacy route works.
+        (err.status === 401 ||
+          err.status === 403 ||
+          err.status === 404 ||
+          err.status >= 500);
+
+      try {
+        return await getSalesPipeline(
+          {
+            q: q.q,
+            recency: q.recency,
+            with_next_action: q.with_next_action,
+            sales_user_id: q.sales_user_id,
+          },
+          signal,
+        );
+      } catch (primaryErr) {
+        if (!shouldFallback(primaryErr)) throw primaryErr;
+        try {
+          return await getLeadsPipeline(q, signal);
+        } catch (legacyErr) {
+          // Both endpoints are down. Don't blow up the page — return an
+          // empty pipeline so the board still renders (admins can keep
+          // managing stages, and the per-route error stays a backend
+          // problem rather than a wall in front of every viewer).
+          if (signal.aborted) throw legacyErr;
+          // eslint-disable-next-line no-console
+          console.warn(
+            "[usePipeline] both pipeline endpoints failed, rendering empty board",
+            { primaryErr, legacyErr },
+          );
+          return {
+            total: 0,
+            stages: [],
+            metrics: {
+              open_pipeline_value: 0,
+              weighted_forecast_value: 0,
+              closed_won_value: 0,
+              active_lead_count: 0,
+              won_count: 0,
+              lost_count: 0,
+            },
+          };
+        }
+      }
+    },
     [
       Array.isArray(q.stage) ? q.stage.join(",") : q.stage,
       q.q,

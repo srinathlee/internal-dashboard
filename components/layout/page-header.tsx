@@ -10,7 +10,7 @@ interface PageHeaderProps {
 /**
  * Standard page header used at the top of every (dashboard) screen.
  * Lives separately from the layout's Header (which holds chrome — theme,
- * role-switcher, user menu); this is the H1 + actions row inside the page body.
+ * notifications, user menu); this is the H1 + actions row inside the page body.
  */
 export function PageHeader({
   title,

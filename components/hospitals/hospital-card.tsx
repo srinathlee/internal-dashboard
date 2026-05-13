@@ -25,6 +25,12 @@ interface HospitalCardProps {
    * non-super-admin viewers).
    */
   onEdit?: (hospital: Hospital) => void;
+  /**
+   * When false, the row is rendered as a plain block (no Link, no
+   * hover/cursor affordance) — used for sales viewers who can see the list
+   * but can't open the detail page.
+   */
+  canOpen?: boolean;
 }
 
 /**
@@ -33,18 +39,42 @@ interface HospitalCardProps {
  *
  * Chips: Admins, Users, Branches, Created by, NYRA AI Number.
  */
-export function HospitalCard({ hospital, creator, onEdit }: HospitalCardProps) {
+export function HospitalCard({
+  hospital,
+  creator,
+  onEdit,
+  canOpen = true,
+}: HospitalCardProps) {
+  const Wrapper = canOpen
+    ? ({ children }: { children: React.ReactNode }) => (
+        <Link
+          href={`/hospitals/${hospital.id}`}
+          className="block focus-visible:outline-none"
+        >
+          {children}
+        </Link>
+      )
+    : ({ children }: { children: React.ReactNode }) => (
+        <div className="block">{children}</div>
+      );
+
   return (
-    <Link
-      href={`/hospitals/${hospital.id}`}
-      className="block focus-visible:outline-none"
-    >
-      <Card className="flex items-stretch gap-4 p-5 transition-colors hover:border-zinc-300 dark:hover:border-zinc-700">
+    <Wrapper>
+      <Card
+        className={cn(
+          "flex items-stretch gap-4 p-5 transition-colors",
+          canOpen && "hover:border-zinc-300 dark:hover:border-zinc-700",
+        )}
+      >
       <div className="flex flex-col items-center gap-3">
-        <ChevronRight
-          className="h-4 w-4 text-zinc-400"
-          aria-hidden
-        />
+        {canOpen ? (
+          <ChevronRight
+            className="h-4 w-4 text-zinc-400"
+            aria-hidden
+          />
+        ) : (
+          <span className="h-4 w-4" aria-hidden />
+        )}
         <div
           aria-hidden
           className="grid h-12 w-12 place-items-center rounded-full bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-400"
@@ -117,7 +147,7 @@ export function HospitalCard({ hospital, creator, onEdit }: HospitalCardProps) {
         </div>
       </div>
       </Card>
-    </Link>
+    </Wrapper>
   );
 }
 

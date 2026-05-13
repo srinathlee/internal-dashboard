@@ -444,10 +444,19 @@ function RuleSetHistoryDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // Newest first. We sort primarily by each version's true applied time
+  // (derived from its rules' earliest `effective_from`) and tiebreak on the
+  // version number — `appliedAt` alone can't be trusted because the backend
+  // updates it across all versions whenever any single version is touched.
   const sorted = useMemo(
     () =>
       ruleSets.data
-        ? [...ruleSets.data].sort((a, b) => b.version - a.version)
+        ? [...ruleSets.data].sort((a, b) => {
+            const ad = deriveAppliedAt(a) ?? "";
+            const bd = deriveAppliedAt(b) ?? "";
+            if (ad !== bd) return bd.localeCompare(ad);
+            return b.version - a.version;
+          })
         : [],
     [ruleSets.data],
   );
@@ -544,8 +553,14 @@ function RuleSetHistoryRow({
     (s, r) => s + (r.weight_pct ?? 0),
     0,
   );
-  const applied = ruleSet.appliedAt
-    ? new Date(ruleSet.appliedAt).toLocaleString(undefined, {
+  // The backend bumps `appliedAt` whenever any version is touched (e.g.
+  // closing an older version's effective window when a new one publishes),
+  // which makes the oldest version look the most recently applied. Derive
+  // a stable "applied" timestamp from the rules' own `effective_from`
+  // instead — those values don't shift around.
+  const derivedApplied = deriveAppliedAt(ruleSet);
+  const applied = derivedApplied
+    ? new Date(derivedApplied).toLocaleString(undefined, {
         month: "short",
         day: "numeric",
         year: "numeric",
@@ -1873,4 +1888,19 @@ function SetupSkeleton() {
       <Card className="h-72 animate-pulse" />
     </div>
   );
+}
+
+/**
+ * Return the timestamp at which a version's rules first became effective.
+ * Uses the earliest `effective_from` across the version's rules — this is
+ * stable across later edits, unlike the backend's top-level `appliedAt`
+ * which gets bumped whenever any version is touched.
+ */
+function deriveAppliedAt(rs: ScoringRuleSet): string | null {
+  let earliest: string | null = null;
+  for (const r of rs.rules) {
+    if (!r.effective_from) continue;
+    if (!earliest || r.effective_from < earliest) earliest = r.effective_from;
+  }
+  return earliest ?? rs.appliedAt ?? null;
 }

@@ -63,13 +63,16 @@ export function HospitalsScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  const isSuperAdmin = auth.user?.role === "super_admin";
+
   const hospitalsQuery = useHospitals({
     q: search.trim() || undefined,
     limit: 100,
   });
 
-  const canCreate = auth.user?.role === "super_admin";
+  const canCreate = isSuperAdmin;
   const canEdit = canCreate;
+  const canOpen = isSuperAdmin;
 
   const hospitals = hospitalsQuery.data?.hospitals ?? [];
 
@@ -219,6 +222,7 @@ export function HospitalsScreen() {
             <HospitalCard
               key={h.id}
               hospital={h}
+              canOpen={canOpen}
               onEdit={
                 canEdit ? (hospital) => setEditingId(hospital.id) : undefined
               }

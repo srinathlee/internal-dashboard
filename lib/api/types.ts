@@ -26,7 +26,7 @@ export interface Paginated<T> {
 
 // ---------- Lead stages ----------
 
-export type ApiLeadStage =
+export type DefaultApiLeadStage =
   | "NEW_LEADS"
   | "FIRST_CONTACT"
   | "DOCTOR_MEETING"
@@ -36,6 +36,14 @@ export type ApiLeadStage =
   | "SPRINT_REVIEW"
   | "SUBSCRIPTION_CLOSED"
   | "LOST";
+
+/**
+ * Stage value the API accepts. Defaults are the built-in funnel stages;
+ * admins can create custom stages whose name is an arbitrary uppercase
+ * string. `string & {}` keeps autocomplete for the known defaults while
+ * still accepting custom values.
+ */
+export type ApiLeadStage = DefaultApiLeadStage | (string & {});
 
 export type ApiLostReason =
   | "budget_cut"
@@ -352,6 +360,10 @@ export interface PipelineStageBucket {
   count: number;
   total_estimated_value: number;
   leads: ApiLead[];
+  /** True when this column is a SALES_ADMIN-created custom stage. */
+  is_custom?: boolean;
+  /** Hex color provided by the backend for custom stages; null for defaults. */
+  color?: string | null;
 }
 
 export interface PipelineMetrics {

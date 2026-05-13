@@ -4,7 +4,7 @@ import { Building2, Phone } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { formatCurrency, timeAgo } from "@/lib/format-metric";
-import { STAGE_PROBABILITY } from "@/lib/sales-pipeline";
+import { stageProbability } from "@/lib/sales-pipeline";
 import type { Lead } from "@/lib/types";
 
 interface PipelineCardProps {
@@ -29,7 +29,7 @@ export function PipelineCard({
   onDragEnd,
   onClick,
 }: PipelineCardProps) {
-  const weighted = Math.round(lead.value * STAGE_PROBABILITY[lead.stage]);
+  const weighted = Math.round(lead.value * stageProbability(lead.stage));
   const displayValue = forecastMode ? weighted : lead.value;
 
   return (

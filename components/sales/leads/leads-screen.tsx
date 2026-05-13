@@ -251,7 +251,9 @@ export function LeadsScreen() {
             : l,
         ),
       );
-      toast.success(`Stage updated → ${LEAD_STAGE_LABEL[next]}`);
+      toast.success(
+        `Stage updated → ${LEAD_STAGE_LABEL[next as keyof typeof LEAD_STAGE_LABEL] ?? next}`,
+      );
     } catch (err) {
       toast.error("Stage update failed", {
         description: errorMessage(err),

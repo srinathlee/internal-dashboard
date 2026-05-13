@@ -15,7 +15,6 @@ import {
 import { MobileSidebarBody } from "./sidebar";
 import { PAGE_TITLE_BY_PATH } from "./nav-config";
 import { NotificationsButton } from "./notifications-button";
-import { RoleSwitcher } from "./role-switcher";
 import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
 
@@ -63,7 +62,6 @@ export function Header() {
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
         <ThemeToggle />
         <NotificationsButton />
-        <RoleSwitcher />
         <UserMenu />
       </div>
     </header>

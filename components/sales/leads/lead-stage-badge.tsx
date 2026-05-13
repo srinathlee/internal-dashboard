@@ -45,7 +45,7 @@ export function LeadStageBadge({
         className,
       )}
     >
-      {LEAD_STAGE_LABEL[stage]}
+      {LEAD_STAGE_LABEL[stage as keyof typeof LEAD_STAGE_LABEL] ?? stage}
     </span>
   );
 }

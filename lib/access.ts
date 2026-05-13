@@ -29,11 +29,20 @@ export function isSalesAdminOrSuperAdmin(auth: AuthContextValue): boolean {
   return isSalesAdmin(auth);
 }
 
-/** Can view the All Hospitals page. */
+/** Can view the All Hospitals page (list-only for sales). */
 export function canSeeHospitals(auth: AuthContextValue): boolean {
   if (!auth.user) return false;
   if (auth.user.role === "super_admin") return true;
   return isOnSales(auth);
+}
+
+/**
+ * Can open an individual hospital's detail page and perform actions
+ * (edit, create branch/users, manage subscription, etc). Restricted to
+ * super_admin — sales sees the list but is view-only on the list itself.
+ */
+export function canOpenHospital(auth: AuthContextValue): boolean {
+  return auth.user?.role === "super_admin";
 }
 
 /**

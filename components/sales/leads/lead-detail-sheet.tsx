@@ -484,7 +484,7 @@ function AboutTab({ lead }: { lead: Lead }) {
       <p>
         {lead.clinicName} is a{" "}
         <span className="font-medium text-zinc-900 dark:text-zinc-50">
-          {LEAD_STAGE_LABEL[lead.stage].toLowerCase()}
+          {(LEAD_STAGE_LABEL[lead.stage as keyof typeof LEAD_STAGE_LABEL] ?? lead.stage).toLowerCase()}
         </span>{" "}
         lead from {lead.city}, sourced via{" "}
         <span className="font-medium text-zinc-900 dark:text-zinc-50">

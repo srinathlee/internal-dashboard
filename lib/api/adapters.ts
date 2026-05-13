@@ -20,8 +20,13 @@ import type {
 } from "@/lib/types";
 
 // ---------- Stage mapping ----------
+//
+// Default stages have hand-coded kebab-case local values; custom stages
+// don't, so they pass through unchanged on both sides. Looking up an
+// unknown key in the maps below returns undefined, and we fall back to
+// returning the input verbatim.
 
-const API_TO_LOCAL_STAGE: Record<ApiLeadStage, LeadStage> = {
+const API_TO_LOCAL_STAGE: Record<string, LeadStage> = {
   NEW_LEADS: "cold-lead",
   FIRST_CONTACT: "first-contact",
   DOCTOR_MEETING: "doctor-meeting",
@@ -33,7 +38,7 @@ const API_TO_LOCAL_STAGE: Record<ApiLeadStage, LeadStage> = {
   LOST: "lost",
 };
 
-const LOCAL_TO_API_STAGE: Record<LeadStage, ApiLeadStage> = {
+const LOCAL_TO_API_STAGE: Record<string, ApiLeadStage> = {
   "cold-lead": "NEW_LEADS",
   "first-contact": "FIRST_CONTACT",
   "doctor-meeting": "DOCTOR_MEETING",
@@ -46,11 +51,11 @@ const LOCAL_TO_API_STAGE: Record<LeadStage, ApiLeadStage> = {
 };
 
 export function toLocalStage(stage: ApiLeadStage): LeadStage {
-  return API_TO_LOCAL_STAGE[stage];
+  return API_TO_LOCAL_STAGE[stage] ?? stage;
 }
 
 export function toApiStage(stage: LeadStage): ApiLeadStage {
-  return LOCAL_TO_API_STAGE[stage];
+  return LOCAL_TO_API_STAGE[stage] ?? stage;
 }
 
 // ---------- Lost reason mapping ----------

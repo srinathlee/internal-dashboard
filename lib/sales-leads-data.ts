@@ -1,4 +1,4 @@
-import type { Lead, LeadStage } from "./types";
+import type { DefaultLeadStage, Lead } from "./types";
 
 /**
  * Render-friendly metadata for sales lead stages and sources.
@@ -10,7 +10,7 @@ import type { Lead, LeadStage } from "./types";
  * data now comes exclusively from `/api/v1/sales/leads`.
  */
 
-export const LEAD_STAGE_LABEL: Record<LeadStage, string> = {
+export const LEAD_STAGE_LABEL: Record<DefaultLeadStage, string> = {
   "cold-lead": "Cold lead",
   "first-contact": "First contact",
   "doctor-meeting": "Doctor meeting",
@@ -23,7 +23,7 @@ export const LEAD_STAGE_LABEL: Record<LeadStage, string> = {
 };
 
 /** Stages in workflow order — used by the stage-change Select. */
-export const LEAD_STAGE_ORDER: LeadStage[] = [
+export const LEAD_STAGE_ORDER: DefaultLeadStage[] = [
   "cold-lead",
   "first-contact",
   "doctor-meeting",

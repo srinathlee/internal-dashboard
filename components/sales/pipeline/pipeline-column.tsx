@@ -1,20 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format-metric";
 import {
-  KANBAN_STAGE_LABEL,
-  STAGE_DOT_CLASS,
-} from "@/lib/sales-pipeline";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Lead, LeadStage } from "@/lib/types";
 
 import { PipelineCard } from "./pipeline-card";
 
 interface PipelineColumnProps {
   stage: LeadStage;
+  label: string;
+  /** Tailwind class for the small accent dot. */
+  dotClass: string;
+  /** Optional hex color override (custom stages). Wins over `dotClass`. */
+  color?: string | null;
+  isCustom?: boolean;
   leads: Lead[];
   forecastMode: boolean;
   draggingId: string | null;
@@ -22,10 +30,17 @@ interface PipelineColumnProps {
   onDragEndCard: () => void;
   onDropOnColumn: (stage: LeadStage) => void;
   onCardClick: (lead: Lead) => void;
+  /** Provided only when the viewer can manage custom stages. */
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
 export function PipelineColumn({
   stage,
+  label,
+  dotClass,
+  color,
+  isCustom = false,
   leads,
   forecastMode,
   draggingId,
@@ -33,10 +48,13 @@ export function PipelineColumn({
   onDragEndCard,
   onDropOnColumn,
   onCardClick,
+  onEdit,
+  onDelete,
 }: PipelineColumnProps) {
   const [isOver, setIsOver] = useState(false);
 
   const totalValue = leads.reduce((sum, l) => sum + l.value, 0);
+  const canManage = isCustom && (onEdit || onDelete);
 
   return (
     <div
@@ -61,22 +79,56 @@ export function PipelineColumn({
         <div className="flex min-w-0 items-center gap-2">
           <span
             aria-hidden
-            className={cn("h-2 w-2 shrink-0 rounded-full", STAGE_DOT_CLASS[stage])}
+            className={cn(
+              "h-2 w-2 shrink-0 rounded-full",
+              !color && dotClass,
+            )}
+            style={color ? { backgroundColor: color } : undefined}
           />
           <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300">
-            {KANBAN_STAGE_LABEL[stage]}
+            {label}
           </span>
           <span className="shrink-0 rounded-full bg-zinc-200/70 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
             {leads.length}
           </span>
         </div>
-        <button
-          type="button"
-          aria-label={`${KANBAN_STAGE_LABEL[stage]} options`}
-          className="grid h-6 w-6 place-items-center rounded-md text-zinc-400 hover:bg-zinc-200/70 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-        >
-          <MoreHorizontal className="h-3.5 w-3.5" />
-        </button>
+        {canManage ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={`${label} options`}
+                className="grid h-6 w-6 place-items-center rounded-md text-zinc-400 hover:bg-zinc-200/70 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+              >
+                <MoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              {onEdit ? (
+                <DropdownMenuItem onSelect={onEdit}>
+                  <Pencil className="mr-2 h-3.5 w-3.5" aria-hidden />
+                  Edit stage
+                </DropdownMenuItem>
+              ) : null}
+              {onDelete ? (
+                <DropdownMenuItem
+                  onSelect={onDelete}
+                  className="text-rose-600 focus:text-rose-700 dark:text-rose-400 dark:focus:text-rose-300"
+                >
+                  <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden />
+                  Delete stage
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span
+            aria-hidden
+            className="grid h-6 w-6 place-items-center text-zinc-300 dark:text-zinc-700"
+          >
+            <MoreHorizontal className="h-3.5 w-3.5" />
+          </span>
+        )}
       </div>
 
       <div className="px-3 pb-1 pt-2 text-[11px] tabular-nums text-zinc-500">

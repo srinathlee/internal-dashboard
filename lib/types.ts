@@ -146,7 +146,7 @@ export interface ActivityEntry {
 
 // ---------- Sales leads ----------
 
-export type LeadStage =
+export type DefaultLeadStage =
   | "cold-lead"
   | "first-contact"
   | "doctor-meeting"
@@ -156,6 +156,14 @@ export type LeadStage =
   | "sprint-review"
   | "subscription-closed"
   | "lost";
+
+/**
+ * Stage value attached to a lead. Defaults are the nine built-in funnel
+ * stages; admins can also create custom stages whose name is an arbitrary
+ * uppercase string (e.g. "NEGOTIATION"). The `string & {}` pattern keeps
+ * autocomplete for the known defaults while still accepting custom values.
+ */
+export type LeadStage = DefaultLeadStage | (string & {});
 
 /** Structured reasons collected when a lead is moved to the "lost" stage. */
 export type LeadLostReason =

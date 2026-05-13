@@ -33,23 +33,16 @@ import { ApiError, getAuthToken, setAuthToken } from "./api/client";
  *       SUPER_ADMIN     -> { role: "super_admin", teamId: null }
  *       SALES_SUBADMIN  -> { role: "member",      teamId: "sales" }
  *
- *   - The dev role-switcher API is preserved for type compatibility but
- *     `allUsers` is just the current user (real backend has no concept
- *     of "view as another user").
  */
 
 export interface AuthContextValue {
   user: User | null;
   isLoaded: boolean;
-  /** Preserved for type compat with the old role-switcher; just the current user. */
-  allUsers: User[];
   /** JWT for any imperative fetch outside the api modules. */
   token: string | null;
 
   signIn: (email: string, password: string) => Promise<User>;
   signOut: () => void;
-  /** Legacy no-op kept so RoleSwitcher continues to compile. */
-  setUserById: (id: string) => void;
   /** Re-fetch /auth/me — useful after profile updates. */
   refreshUser: () => Promise<void>;
 
@@ -183,39 +176,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const setUserById = useCallback((_id: string) => {
-    // Real backend doesn't support impersonation. Kept as a no-op to preserve
-    // the type contract used by the (now-vestigial) DEV role switcher.
-  }, []);
-
   const can = useCallback(
     (permission: Permission, resource?: ResourceContext) =>
       canCheck(user, permission, resource),
     [user],
   );
 
-  const allUsers = useMemo<User[]>(() => (user ? [user] : []), [user]);
-
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       isLoaded,
-      allUsers,
       token,
       signIn,
       signOut,
-      setUserById,
       refreshUser,
       can,
     }),
     [
       user,
       isLoaded,
-      allUsers,
       token,
       signIn,
       signOut,
-      setUserById,
       refreshUser,
       can,
     ],
