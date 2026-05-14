@@ -1,43 +1,54 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
 import { isSalesMember } from "@/lib/access";
+import { errorMessage } from "@/lib/hooks/use-async";
+import { useMyRevenueTargets } from "@/lib/hooks/use-revenue-targets";
+import type {
+  PeriodSnapshot,
+  RevenuePeriod,
+} from "@/lib/api/sales-revenue-targets";
 
 import {
   SingleRepDetailedView,
-  loadTargets,
   type Period,
-  type TargetMap,
 } from "./target-management-screen";
 
 /**
  * Sales rep "My targets" view. Reuses the same single-rep detailed layout
  * that super admins see on /sales/targets when filtering down to one rep —
- * just scoped to the currently authenticated rep.
- *
- * Data source matches the super admin's target-management screen
- * (localStorage), so a target assigned there is immediately visible here.
- * Swap both sites for the real API once the backend lands.
+ * just scoped to the currently authenticated rep via `GET /sales/targets/me`.
  */
 export function MyTargetsScreen() {
   const auth = useAuth();
   const [period, setPeriod] = useState<Period>("DAILY");
-  const [targets, setTargets] = useState<TargetMap>({});
+  const query = useMyRevenueTargets();
 
-  useEffect(() => {
-    setTargets(loadTargets());
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === null || e.key === "nyra-dashboard:sales-targets-v1") {
-        setTargets(loadTargets());
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  // The /me endpoint returns `MyPeriodSnapshot` per period — which extends
+  // PeriodSnapshot with days_total/elapsed/remaining fields. We narrow back
+  // to PeriodSnapshot for the shared view; the days fields aren't used yet.
+  const periods = useMemo<
+    Partial<Record<RevenuePeriod, PeriodSnapshot | null>>
+  >(() => {
+    if (!query.data) return {};
+    const out: Partial<Record<RevenuePeriod, PeriodSnapshot | null>> = {};
+    for (const key of Object.keys(query.data.periods) as RevenuePeriod[]) {
+      const snap = query.data.periods[key];
+      out[key] = snap
+        ? {
+            target_amount: snap.target_amount,
+            actual_amount: snap.actual_amount,
+            progress_pct: snap.progress_pct,
+            status: snap.status,
+          }
+        : null;
+    }
+    return out;
+  }, [query.data]);
 
   if (!auth.isLoaded) {
     return (
@@ -59,20 +70,30 @@ export function MyTargetsScreen() {
     );
   }
 
-  const userTargets = targets[auth.user.id] ?? {};
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="My targets"
         description="Your assigned target amount and progress for each period."
       />
-      <SingleRepDetailedView
-        user={{ id: auth.user.id, name: auth.user.name }}
-        targets={userTargets}
-        activePeriod={period}
-        onPeriodChange={setPeriod}
-      />
+
+      {query.error ? (
+        <Card className="p-8 text-center text-sm text-rose-600">
+          Couldn't load your targets: {errorMessage(query.error)}
+        </Card>
+      ) : query.isLoading && !query.data ? (
+        <div className="space-y-4">
+          <Card className="h-24 animate-pulse" />
+          <Card className="h-80 animate-pulse" />
+        </div>
+      ) : (
+        <SingleRepDetailedView
+          user={query.data?.user ?? { id: auth.user.id, name: auth.user.name }}
+          periods={periods}
+          activePeriod={period}
+          onPeriodChange={setPeriod}
+        />
+      )}
     </div>
   );
 }

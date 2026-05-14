@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertOctagon,
@@ -14,6 +14,7 @@ import {
   Flame,
   IndianRupee,
   Loader2,
+  MinusCircle,
   Pencil,
   Search,
   Target as TargetIcon,
@@ -49,11 +50,21 @@ import { getInitials } from "@/lib/format";
 import { formatCurrency } from "@/lib/format-metric";
 import { useLeadPeople } from "@/lib/hooks/use-leads";
 import { errorMessage } from "@/lib/hooks/use-async";
+import {
+  useMonitorBoard,
+  useRepRevenueTargets,
+  useRevenueTargetMutations,
+} from "@/lib/hooks/use-revenue-targets";
+import type {
+  PeriodSnapshot,
+  RevenuePeriod,
+  RevenueStatus,
+} from "@/lib/api/sales-revenue-targets";
 import { cn } from "@/lib/utils";
 
 // ---------- Period model ---------------------------------------------------
 
-export type Period = "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
+export type Period = RevenuePeriod;
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: "DAILY", label: "Daily" },
@@ -87,8 +98,9 @@ const PERIOD_ICON: Record<Period, LucideIcon> = {
   YEARLY: TargetIcon,
 };
 
-// How much of the current period has elapsed (0–100), used for the
-// "pace vs expected" stat in the detailed breakdown.
+// How much of the current period has elapsed (0–100). Used for the
+// "pace vs expected" stat — the backend doesn't pre-compute this since it
+// changes minute-to-minute, so derive client-side.
 function elapsedPctOf(period: Period): number {
   const now = new Date();
   switch (period) {
@@ -183,68 +195,10 @@ function periodEndsLabel(period: Period): { label: string; days: number } {
   return { label, days };
 }
 
-// ---------- Local storage (placeholder until backend ships) -----------------
-//
-// One target amount per (userId, period). All values render through
-// `formatCurrency(_, "INR")` because the only knob is "target amount" — so
-// everything is currency for now. Swap this layer out for a real API call
-// once the backend endpoint is ready; component logic stays unchanged.
-
-const STORAGE_KEY = "nyra-dashboard:sales-targets-v1";
-
-export type TargetMap = Record<string, Partial<Record<Period, number>>>;
-
-export function loadTargets(): TargetMap {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as TargetMap) : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveTargets(map: TargetMap): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-  } catch {
-    // localStorage may be blocked — non-fatal in dev.
-  }
-}
-
-// ---------- Mock progress --------------------------------------------------
-//
-// The "Monitor team" tab needs a current-period actual value to compute the
-// status pill. Without a backend endpoint we derive a stable pseudo-random
-// number from `(userId + period)` so values don't dance around on every
-// re-render but still vary by rep, which mirrors how the real board will
-// behave once it's wired up.
-
-function pseudoActual(userId: string, period: Period, target: number): number {
-  if (target <= 0) return 0;
-  let h = 0;
-  const s = `${userId}::${period}`;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  // Spread between 30% and 130% of target so the table includes all four
-  // statuses out of the box.
-  const pct = 0.3 + ((h % 100) / 100) * 1.0;
-  return Math.round(target * pct);
-}
-
 // ---------- Status mapping -------------------------------------------------
 
-type Status = "BEHIND" | "AT_RISK" | "ON_TRACK" | "ACHIEVED";
-
-function statusFromPct(pct: number): Status {
-  if (pct >= 100) return "ACHIEVED";
-  if (pct >= 80) return "ON_TRACK";
-  if (pct >= 50) return "AT_RISK";
-  return "BEHIND";
-}
-
 const STATUS_META: Record<
-  Status,
+  RevenueStatus,
   {
     label: string;
     pill: string;
@@ -260,7 +214,7 @@ const STATUS_META: Record<
     text: "text-rose-600 dark:text-rose-400",
     bar: "bg-rose-500",
     rowBg: "bg-rose-50/40 dark:bg-rose-950/10",
-    icon: TrendingUp,
+    icon: TrendingDown,
   },
   AT_RISK: {
     label: "At Risk",
@@ -286,24 +240,26 @@ const STATUS_META: Record<
     rowBg: "",
     icon: CheckCircle2,
   },
+  UNSET: {
+    label: "Unset",
+    pill: "bg-zinc-100 text-zinc-600 ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700",
+    text: "text-zinc-400",
+    bar: "bg-zinc-300",
+    rowBg: "",
+    icon: MinusCircle,
+  },
 };
+
+/** A `(period, snapshot)` pair where snapshot may be missing entirely. */
+function isUnset(snap: PeriodSnapshot | null | undefined): boolean {
+  return !snap || snap.target_amount <= 0 || snap.status === "UNSET";
+}
 
 // ---------- Screen ---------------------------------------------------------
 
 export function TargetManagementScreen() {
   const auth = useAuth();
   const [tab, setTab] = useState<"monitor" | "assign">("monitor");
-  const [targets, setTargetsState] = useState<TargetMap>({});
-
-  // Hydrate from localStorage on mount.
-  useEffect(() => {
-    setTargetsState(loadTargets());
-  }, []);
-
-  const updateTargets = useCallback((next: TargetMap) => {
-    setTargetsState(next);
-    saveTargets(next);
-  }, []);
 
   if (!auth.isLoaded) {
     return (
@@ -346,11 +302,7 @@ export function TargetManagementScreen() {
         />
       </div>
 
-      {tab === "monitor" ? (
-        <MonitorTeamTab targets={targets} />
-      ) : (
-        <AssignTargetsTab targets={targets} onChange={updateTargets} />
-      )}
+      {tab === "monitor" ? <MonitorTeamTab /> : <AssignTargetsTab />}
     </div>
   );
 }
@@ -387,7 +339,7 @@ function TabButton({
 // Monitor team
 // =============================================================
 
-function MonitorTeamTab({ targets }: { targets: TargetMap }) {
+function MonitorTeamTab() {
   const [period, setPeriod] = useState<Period>("DAILY");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const peopleQuery = useLeadPeople();
@@ -404,35 +356,22 @@ function MonitorTeamTab({ targets }: { targets: TargetMap }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [people.length]);
 
-  const visiblePeople = useMemo(
-    () => people.filter((p) => selectedIds.includes(p.id)),
-    [people, selectedIds],
-  );
+  // The monitor endpoint returns tallies + rows + all_periods in one shot.
+  // We filter rows client-side by selectedIds so the dropdown stays snappy
+  // — but we also pass `user_ids` to the API for backend-side filtering.
+  const monitor = useMonitorBoard({
+    period,
+    user_ids: selectedIds.length > 0 ? selectedIds : undefined,
+  });
 
-  const rows = useMemo(() => {
-    return visiblePeople.map((p) => {
-      const target = targets[p.id]?.[period] ?? 0;
-      const actual = pseudoActual(p.id, period, target);
-      const pct = target > 0 ? Math.round((actual / target) * 100) : 0;
-      const status = target > 0 ? statusFromPct(pct) : "BEHIND";
-      return { user: p, target, actual, pct, status };
-    });
-  }, [visiblePeople, period, targets]);
-
-  const tallies = useMemo(() => {
-    let behind = 0,
-      atRisk = 0,
-      onTrack = 0,
-      achieved = 0;
-    for (const r of rows) {
-      if (r.target <= 0) continue;
-      if (r.status === "BEHIND") behind++;
-      else if (r.status === "AT_RISK") atRisk++;
-      else if (r.status === "ON_TRACK") onTrack++;
-      else achieved++;
-    }
-    return { behind, atRisk, onTrack, achieved };
-  }, [rows]);
+  const tallies = monitor.data?.tallies ?? {
+    behind: 0,
+    at_risk: 0,
+    on_track: 0,
+    achieved: 0,
+    unset: 0,
+  };
+  const rows = monitor.data?.rows ?? [];
 
   return (
     <div className="space-y-5">
@@ -449,14 +388,14 @@ function MonitorTeamTab({ targets }: { targets: TargetMap }) {
           accent="text-amber-600"
           accentBg="bg-amber-50 dark:bg-amber-950/30"
           label="At risk"
-          value={tallies.atRisk}
+          value={tallies.at_risk}
         />
         <KpiTile
           icon={TrendingUp}
           accent="text-sky-600"
           accentBg="bg-sky-50 dark:bg-sky-950/30"
           label="On track"
-          value={tallies.onTrack}
+          value={tallies.on_track}
         />
         <KpiTile
           icon={CheckCircle2}
@@ -476,7 +415,11 @@ function MonitorTeamTab({ targets }: { targets: TargetMap }) {
         />
       </div>
 
-      {peopleQuery.isLoading && rows.length === 0 ? (
+      {monitor.error ? (
+        <Card className="grid place-items-center py-12 text-sm text-rose-600">
+          Couldn't load the team board: {errorMessage(monitor.error)}
+        </Card>
+      ) : monitor.isLoading && rows.length === 0 ? (
         <div className="space-y-2">
           {Array.from({ length: 3 }).map((_, i) => (
             <Card key={i} className="h-24 animate-pulse" />
@@ -487,14 +430,17 @@ function MonitorTeamTab({ targets }: { targets: TargetMap }) {
           <Users className="mb-2 h-6 w-6 text-zinc-400" aria-hidden />
           No reps configured yet.
         </Card>
-      ) : rows.length === 0 ? (
+      ) : selectedIds.length === 0 ? (
         <Card className="grid place-items-center py-12 text-sm text-zinc-500">
           Pick at least one rep from the dropdown to see their targets.
         </Card>
-      ) : visiblePeople.length === 1 ? (
+      ) : rows.length === 1 ? (
         <SingleRepDetailedView
-          user={visiblePeople[0]!}
-          targets={targets[visiblePeople[0]!.id] ?? {}}
+          user={{
+            id: rows[0]!.user.id,
+            name: rows[0]!.user.name,
+          }}
+          periods={rows[0]!.all_periods}
           activePeriod={period}
           onPeriodChange={setPeriod}
         />
@@ -505,7 +451,7 @@ function MonitorTeamTab({ targets }: { targets: TargetMap }) {
               key={r.user.id}
               userId={r.user.id}
               name={r.user.name}
-              targets={targets[r.user.id] ?? {}}
+              periods={r.all_periods}
               activePeriod={period}
             />
           ))}
@@ -665,12 +611,12 @@ function RepMultiSelect({
 function RepTargetCard({
   userId,
   name,
-  targets,
+  periods,
   activePeriod,
 }: {
   userId: string;
   name: string;
-  targets: Partial<Record<Period, number>>;
+  periods: Partial<Record<Period, PeriodSnapshot | null>>;
   activePeriod: Period;
 }) {
   return (
@@ -697,8 +643,7 @@ function RepTargetCard({
           <PeriodSnapshotCard
             key={p.key}
             period={p.key}
-            target={targets[p.key] ?? 0}
-            userId={userId}
+            snapshot={periods[p.key] ?? null}
             highlighted={p.key === activePeriod}
           />
         ))}
@@ -709,20 +654,19 @@ function RepTargetCard({
 
 function PeriodSnapshotCard({
   period,
-  target,
-  userId,
+  snapshot,
   highlighted,
 }: {
   period: Period;
-  target: number;
-  userId: string;
+  snapshot: PeriodSnapshot | null;
   highlighted: boolean;
 }) {
-  const actual = pseudoActual(userId, period, target);
-  const pct = target > 0 ? Math.round((actual / target) * 100) : 0;
-  const status = target > 0 ? statusFromPct(pct) : "BEHIND";
+  const noTarget = isUnset(snapshot);
+  const status: RevenueStatus = noTarget ? "UNSET" : snapshot!.status;
   const meta = STATUS_META[status];
-  const noTarget = target <= 0;
+  const target = snapshot?.target_amount ?? 0;
+  const actual = snapshot?.actual_amount ?? 0;
+  const pct = snapshot?.progress_pct ?? 0;
 
   return (
     <Card
@@ -747,20 +691,14 @@ function PeriodSnapshotCard({
         <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
           {PERIOD_LABEL[period]}
         </span>
-        {noTarget ? (
-          <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-            Unset
-          </span>
-        ) : (
-          <span
-            className={cn(
-              "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
-              meta.pill,
-            )}
-          >
-            {meta.label}
-          </span>
-        )}
+        <span
+          className={cn(
+            "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
+            meta.pill,
+          )}
+        >
+          {meta.label}
+        </span>
       </div>
       <div className="mt-2 text-sm font-semibold tabular-nums">
         {noTarget ? (
@@ -792,24 +730,16 @@ function PeriodSnapshotCard({
 
 export function SingleRepDetailedView({
   user,
-  targets,
+  periods,
   activePeriod,
   onPeriodChange,
 }: {
   user: { id: string; name: string };
-  targets: Partial<Record<Period, number>>;
+  periods: Partial<Record<Period, PeriodSnapshot | null>>;
   activePeriod: Period;
   onPeriodChange: (p: Period) => void;
 }) {
-  const rows = PERIODS.map((p) => {
-    const target = targets[p.key] ?? 0;
-    const actual = pseudoActual(user.id, p.key, target);
-    const pct = target > 0 ? Math.round((actual / target) * 100) : 0;
-    const status: Status = target > 0 ? statusFromPct(pct) : "BEHIND";
-    return { period: p.key, target, actual, pct, status };
-  });
-
-  const active = rows.find((r) => r.period === activePeriod) ?? rows[0]!;
+  const activeSnapshot = periods[activePeriod] ?? null;
 
   return (
     <div className="space-y-5">
@@ -831,26 +761,20 @@ export function SingleRepDetailedView({
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {rows.map((r) => (
+        {PERIODS.map((p) => (
           <PeriodTile
-            key={r.period}
-            period={r.period}
-            target={r.target}
-            actual={r.actual}
-            pct={r.pct}
-            status={r.status}
-            active={r.period === activePeriod}
-            onClick={() => onPeriodChange(r.period)}
+            key={p.key}
+            period={p.key}
+            snapshot={periods[p.key] ?? null}
+            active={p.key === activePeriod}
+            onClick={() => onPeriodChange(p.key)}
           />
         ))}
       </div>
 
       <DetailedBreakdownCard
-        period={active.period}
-        target={active.target}
-        actual={active.actual}
-        pct={active.pct}
-        status={active.status}
+        period={activePeriod}
+        snapshot={activeSnapshot}
       />
     </div>
   );
@@ -858,24 +782,22 @@ export function SingleRepDetailedView({
 
 function PeriodTile({
   period,
-  target,
-  actual,
-  pct,
-  status,
+  snapshot,
   active,
   onClick,
 }: {
   period: Period;
-  target: number;
-  actual: number;
-  pct: number;
-  status: Status;
+  snapshot: PeriodSnapshot | null;
   active: boolean;
   onClick: () => void;
 }) {
   const Icon = PERIOD_ICON[period];
+  const noTarget = isUnset(snapshot);
+  const status: RevenueStatus = noTarget ? "UNSET" : snapshot!.status;
   const meta = STATUS_META[status];
-  const noTarget = target <= 0;
+  const target = snapshot?.target_amount ?? 0;
+  const actual = snapshot?.actual_amount ?? 0;
+  const pct = snapshot?.progress_pct ?? 0;
 
   return (
     <button
@@ -903,20 +825,14 @@ function PeriodTile({
             {PERIOD_HUMAN[period]}
           </span>
         </div>
-        {noTarget ? (
-          <span className="shrink-0 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-            Unset
-          </span>
-        ) : (
-          <span
-            className={cn(
-              "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
-              meta.pill,
-            )}
-          >
-            {meta.label}
-          </span>
-        )}
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
+            meta.pill,
+          )}
+        >
+          {meta.label}
+        </span>
       </div>
 
       <div className="mt-2 text-xl font-bold tabular-nums">
@@ -956,19 +872,17 @@ function PeriodTile({
 
 function DetailedBreakdownCard({
   period,
-  target,
-  actual,
-  pct,
-  status,
+  snapshot,
 }: {
   period: Period;
-  target: number;
-  actual: number;
-  pct: number;
-  status: Status;
+  snapshot: PeriodSnapshot | null;
 }) {
+  const noTarget = isUnset(snapshot);
+  const status: RevenueStatus = noTarget ? "UNSET" : snapshot!.status;
   const meta = STATUS_META[status];
-  const noTarget = target <= 0;
+  const target = snapshot?.target_amount ?? 0;
+  const actual = snapshot?.actual_amount ?? 0;
+  const pct = snapshot?.progress_pct ?? 0;
   const ends = periodEndsLabel(period);
   const remaining = Math.max(0, target - actual);
   const elapsed = elapsedPctOf(period);
@@ -1041,20 +955,18 @@ function DetailedBreakdownCard({
                   {noTarget ? "—" : `${pct}%`}
                 </div>
                 <div className="text-xs text-zinc-500">
-                  {noTarget ? "Unset" : meta.label}
+                  {meta.label}
                 </div>
               </div>
             </div>
             <span
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold",
-                noTarget
-                  ? "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-                  : meta.pill,
+                meta.pill,
               )}
             >
               <meta.icon className="h-3.5 w-3.5" aria-hidden />
-              {noTarget ? "Unset" : meta.label}
+              {meta.label}
             </span>
           </div>
 
@@ -1227,13 +1139,7 @@ function PeriodTabs({
 // Assign targets
 // =============================================================
 
-function AssignTargetsTab({
-  targets,
-  onChange,
-}: {
-  targets: TargetMap;
-  onChange: (next: TargetMap) => void;
-}) {
+function AssignTargetsTab() {
   const peopleQuery = useLeadPeople();
   const people = useMemo(
     () => peopleQuery.data ?? [],
@@ -1246,12 +1152,16 @@ function AssignTargetsTab({
   const [value, setValue] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
 
+  const mutations = useRevenueTargetMutations();
+  const repTargetsQuery = useRepRevenueTargets(userId || null);
+
   // Default the rep selection to the first available rep once people load.
   useEffect(() => {
     if (!userId && people.length > 0) setUserId(people[0]!.id);
   }, [people, userId]);
 
   const selectedRep = people.find((p) => p.id === userId) ?? null;
+  const repTargets = repTargetsQuery.data?.targets ?? {};
 
   const handleAssign = async () => {
     const numeric = Number(value);
@@ -1265,19 +1175,29 @@ function AssignTargetsTab({
     }
     setSubmitting(true);
     try {
-      const ids = applyAll ? people.map((p) => p.id) : [userId];
-      const next: TargetMap = { ...targets };
-      for (const id of ids) {
-        if (!id) continue;
-        next[id] = { ...(next[id] ?? {}), [period]: numeric };
+      if (applyAll) {
+        const res = await mutations.bulkSet({
+          period,
+          target_amount: numeric,
+          currency: "INR",
+          user_ids: null,
+        });
+        toast.success(
+          `${PERIOD_LABEL[period]} target applied to ${res.applied_to} rep${res.applied_to === 1 ? "" : "s"}`,
+          res.skipped.length > 0
+            ? { description: `${res.skipped.length} skipped.` }
+            : undefined,
+        );
+      } else {
+        await mutations.setForUser(userId, {
+          period,
+          target_amount: numeric,
+          currency: "INR",
+        });
+        toast.success(`${PERIOD_LABEL[period]} target updated`);
       }
-      onChange(next);
-      toast.success(
-        applyAll
-          ? `${PERIOD_LABEL[period]} target applied to ${ids.length} rep${ids.length === 1 ? "" : "s"}`
-          : `${PERIOD_LABEL[period]} target updated`,
-      );
       setValue("");
+      await repTargetsQuery.refetch();
     } catch (err) {
       toast.error("Couldn't save target", { description: errorMessage(err) });
     } finally {
@@ -1285,7 +1205,7 @@ function AssignTargetsTab({
     }
   };
 
-  const handleDelete = (p: Period) => {
+  const handleDelete = async (p: Period) => {
     if (!userId) return;
     if (
       typeof window !== "undefined" &&
@@ -1293,14 +1213,15 @@ function AssignTargetsTab({
     ) {
       return;
     }
-    const next: TargetMap = { ...targets };
-    if (next[userId]) {
-      const copy = { ...next[userId] };
-      delete copy[p];
-      next[userId] = copy;
+    try {
+      await mutations.remove(userId, p);
+      toast.success(`${PERIOD_LABEL[p]} target removed`);
+      await repTargetsQuery.refetch();
+    } catch (err) {
+      toast.error("Couldn't remove target", {
+        description: errorMessage(err),
+      });
     }
-    onChange(next);
-    toast.success(`${PERIOD_LABEL[p]} target removed`);
   };
 
   const startEdit = (p: Period, current: number) => {
@@ -1310,8 +1231,6 @@ function AssignTargetsTab({
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
-
-  const repTargets = userId ? (targets[userId] ?? {}) : {};
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -1453,10 +1372,24 @@ function AssignTargetsTab({
             <div className="rounded-md border border-dashed p-6 text-center text-xs text-zinc-500">
               Select a rep to see their targets.
             </div>
+          ) : repTargetsQuery.isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-14 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800"
+                />
+              ))}
+            </div>
+          ) : repTargetsQuery.error ? (
+            <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-xs text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400">
+              {errorMessage(repTargetsQuery.error)}
+            </div>
           ) : (
             PERIODS.map((p) => {
-              const current = repTargets[p.key];
-              const hasTarget = typeof current === "number" && current > 0;
+              const entry = repTargets[p.key];
+              const current = entry?.target_amount ?? 0;
+              const hasTarget = current > 0;
               return (
                 <div
                   key={p.key}
@@ -1470,7 +1403,7 @@ function AssignTargetsTab({
                     <div className="flex items-center gap-2">
                       {hasTarget ? (
                         <span className="text-sm font-semibold tabular-nums">
-                          {formatCurrency(current!, "INR")}
+                          {formatCurrency(current, "INR")}
                         </span>
                       ) : (
                         <span className="text-xs text-zinc-400">
@@ -1479,7 +1412,7 @@ function AssignTargetsTab({
                       )}
                       <button
                         type="button"
-                        onClick={() => startEdit(p.key, current ?? 0)}
+                        onClick={() => startEdit(p.key, current)}
                         aria-label={`Edit ${p.label.toLowerCase()} target`}
                         className="grid h-7 w-7 place-items-center rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
                       >
