@@ -37,6 +37,7 @@ import type { ApiSubadmin } from "@/lib/api/types";
 import { ResetPasswordModal } from "./reset-password-modal";
 import { ReplaceAdminModal } from "./replace-admin-modal";
 import { AddMemberModal } from "./add-member-modal";
+import { AddMemberStepperModal } from "./add-member-stepper-modal";
 import { MemberDetailSheet } from "./member-detail-sheet";
 
 interface TeamDetailScreenProps {
@@ -391,12 +392,21 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
         onReplaced={refetchAll}
       />
 
-      <AddMemberModal
-        open={addMemberOpen}
-        onOpenChange={setAddMemberOpen}
-        teamId={teamId}
-        onCreated={refetchAll}
-      />
+      {isSuperAdmin ? (
+        <AddMemberStepperModal
+          open={addMemberOpen}
+          onOpenChange={setAddMemberOpen}
+          teamId={teamId}
+          onCreated={refetchAll}
+        />
+      ) : (
+        <AddMemberModal
+          open={addMemberOpen}
+          onOpenChange={setAddMemberOpen}
+          teamId={teamId}
+          onCreated={refetchAll}
+        />
+      )}
 
       <MemberDetailSheet
         member={memberDetail}
