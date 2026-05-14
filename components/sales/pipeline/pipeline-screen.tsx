@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { MessageCircle, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ import {
 import { MarkAsLostModal } from "./mark-as-lost-modal";
 import { PipelineColumn } from "./pipeline-column";
 import { SalesRepFilter } from "./sales-rep-filter";
+import { SendBrochureModal } from "./send-brochure-modal";
 import { StageModal } from "./stage-modal";
 
 type ActiveFilter = "all" | "active" | "slow";
@@ -206,6 +207,7 @@ export function PipelineScreen() {
   const [lostOpen, setLostOpen] = useState(false);
 
   const [newLeadOpen, setNewLeadOpen] = useState(false);
+  const [sendBrochureOpen, setSendBrochureOpen] = useState(false);
 
   const handleCreateLead = async (input: NewLeadInput) => {
     try {
@@ -458,10 +460,19 @@ export function PipelineScreen() {
         title="Sales pipeline"
         description="Drag cards between stages — every move logs to the timeline. Moving to LOST asks for a reason."
         actions={
-          <Button onClick={() => setNewLeadOpen(true)}>
-            <Plus className="h-4 w-4" aria-hidden />
-            New lead
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setSendBrochureOpen(true)}
+            >
+              <MessageCircle className="h-4 w-4" aria-hidden />
+              Send brochure
+            </Button>
+            <Button onClick={() => setNewLeadOpen(true)}>
+              <Plus className="h-4 w-4" aria-hidden />
+              New lead
+            </Button>
+          </div>
         }
       />
 
@@ -658,6 +669,13 @@ export function PipelineScreen() {
         open={newLeadOpen}
         onOpenChange={setNewLeadOpen}
         onCreate={handleCreateLead}
+      />
+
+      <SendBrochureModal
+        open={sendBrochureOpen}
+        onOpenChange={setSendBrochureOpen}
+        // TODO: wire `onSend={(phone) => sendBrochureApi(phone)}` once the
+        // WhatsApp endpoint is available.
       />
 
       <StageModal
