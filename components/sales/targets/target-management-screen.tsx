@@ -53,7 +53,7 @@ import { cn } from "@/lib/utils";
 
 // ---------- Period model ---------------------------------------------------
 
-type Period = "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
+export type Period = "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY";
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: "DAILY", label: "Daily" },
@@ -192,9 +192,9 @@ function periodEndsLabel(period: Period): { label: string; days: number } {
 
 const STORAGE_KEY = "nyra-dashboard:sales-targets-v1";
 
-type TargetMap = Record<string, Partial<Record<Period, number>>>;
+export type TargetMap = Record<string, Partial<Record<Period, number>>>;
 
-function loadTargets(): TargetMap {
+export function loadTargets(): TargetMap {
   if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -790,7 +790,7 @@ function PeriodSnapshotCard({
 // Single-rep detailed view
 // =============================================================
 
-function SingleRepDetailedView({
+export function SingleRepDetailedView({
   user,
   targets,
   activePeriod,

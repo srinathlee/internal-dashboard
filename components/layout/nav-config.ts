@@ -177,6 +177,16 @@ export const NAV_ITEMS: NavItem[] = [
     // numeric targets to individual reps.
     show: (a) => a.user?.role === "super_admin",
   },
+  {
+    label: "My targets",
+    href: "/sales/my-targets",
+    icon: Target,
+    group: "salesTeam",
+    // Sales rep counterpart to Target management — read-only view of the
+    // targets the super admin has assigned to this rep, with current
+    // progress per period.
+    show: (a) => isSalesMember(a),
+  },
 
   // ----- Bottom group: Settings always last -----
   {
@@ -224,6 +234,7 @@ export const PAGE_TITLE_BY_PATH: Record<string, string> = {
   "/sales/field-location": "Field location",
   "/sales/metrics": "Metric management",
   "/sales/targets": "Target management",
+  "/sales/my-targets": "My targets",
   "/team": "Team",
   "/teams": "Teams",
   "/audit-log": "Audit log",
