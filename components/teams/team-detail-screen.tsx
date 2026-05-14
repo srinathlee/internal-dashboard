@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   KeyRound,
@@ -62,6 +63,14 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
   const subadminsQuery = useSubadmins({ limit: 200 });
   const subadminMutations = useSubadminMutations();
   const teamMutations = useTeamMutations();
+  const searchParams = useSearchParams();
+  // Deep-link from other screens (e.g. /sales/targets) auto-opens a member
+  // sheet via `?member=<id>`. We capture the param on mount so the sheet
+  // doesn't re-open if the user closes it but stays on the same URL.
+  const initialMemberId = useMemo(
+    () => searchParams?.get("member") ?? null,
+    [searchParams],
+  );
 
   const [resetUser, setResetUser] = useState<ApiSubadmin | null>(null);
   const [replaceAdminOpen, setReplaceAdminOpen] = useState(false);
@@ -69,7 +78,19 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
   // Store the open member's id, then look up the freshest record on each
   // render so the sheet reflects post-mutation refetches without leaking
   // stale state via setMemberDetail(member).
-  const [memberDetailId, setMemberDetailId] = useState<string | null>(null);
+  const [memberDetailId, setMemberDetailId] = useState<string | null>(
+    initialMemberId,
+  );
+
+  // If the URL param appears after first render (e.g. client-side nav into
+  // the page), still honor it. Only fires on initial param presence, not on
+  // every searchParams change, to avoid re-opening after manual close.
+  useEffect(() => {
+    if (initialMemberId && memberDetailId === null) {
+      setMemberDetailId(initialMemberId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMemberId]);
 
   const team = useMemo(
     () => teamsQuery.data?.find((t) => t.id === teamId) ?? null,

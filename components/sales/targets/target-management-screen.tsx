@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
@@ -11,6 +12,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  Clock,
   Flame,
   IndianRupee,
   Loader2,
@@ -21,6 +23,7 @@ import {
   Trash2,
   TrendingDown,
   TrendingUp,
+  UserCog,
   Users,
   XCircle,
   Zap,
@@ -58,7 +61,6 @@ import {
 import type {
   PeriodSnapshot,
   RevenuePeriod,
-  RevenueStatus,
 } from "@/lib/api/sales-revenue-targets";
 import { cn } from "@/lib/utils";
 
@@ -143,6 +145,61 @@ function elapsedPctOf(period: Period): number {
   }
 }
 
+/**
+ * "Day X of Y" / "Hour X of 24" summary for the current period. Lets each
+ * tile show how far through the period we are in concrete units, not just
+ * the elapsed percentage.
+ */
+function periodElapsedSummary(period: Period): {
+  current: number;
+  total: number;
+  label: string;
+} {
+  const now = new Date();
+  switch (period) {
+    case "DAILY": {
+      const hour = now.getHours() + 1; // 1..24, friendly count
+      return { current: hour, total: 24, label: `Hour ${hour} of 24` };
+    }
+    case "WEEKLY": {
+      // ISO week: Monday=1, Sunday=7
+      const day = now.getDay() === 0 ? 7 : now.getDay();
+      return { current: day, total: 7, label: `Day ${day} of 7` };
+    }
+    case "MONTHLY": {
+      const total = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+      ).getDate();
+      return {
+        current: now.getDate(),
+        total,
+        label: `Day ${now.getDate()} of ${total}`,
+      };
+    }
+    case "QUARTERLY": {
+      const q = Math.floor(now.getMonth() / 3);
+      const qStart = new Date(now.getFullYear(), q * 3, 1);
+      const qEnd = new Date(now.getFullYear(), q * 3 + 3, 0);
+      const totalDays =
+        Math.round((qEnd.getTime() - qStart.getTime()) / 86400000) + 1;
+      const current =
+        Math.floor((now.getTime() - qStart.getTime()) / 86400000) + 1;
+      return { current, total: totalDays, label: `Day ${current} of ${totalDays}` };
+    }
+    case "YEARLY": {
+      const yearStart = new Date(now.getFullYear(), 0, 1);
+      const current =
+        Math.floor((now.getTime() - yearStart.getTime()) / 86400000) + 1;
+      const y = now.getFullYear();
+      const isLeap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+      const total = isLeap ? 366 : 365;
+      return { current, total, label: `Day ${current} of ${total}` };
+    }
+  }
+}
+
 function periodEndsLabel(period: Period): { label: string; days: number } {
   const now = new Date();
   let end: Date;
@@ -195,65 +252,128 @@ function periodEndsLabel(period: Period): { label: string; days: number } {
   return { label, days };
 }
 
-// ---------- Status mapping -------------------------------------------------
+// ---------- Pace-based status ----------------------------------------------
+//
+// The backend's `status` field bands by `achieved/target` ratio, which paints
+// every rep "Behind" on day 1 of a period. We override it client-side with a
+// *pace* model that compares achieved against what's expected by today —
+// `expected = target * elapsed_fraction_of_period`. A rep at 5% achievement
+// on day 1 (when expected is also ~5%) is "On Track", not "Behind".
+
+type PaceStatus =
+  | "JUST_STARTED"
+  | "AHEAD"
+  | "ON_TRACK"
+  | "AT_RISK"
+  | "BEHIND"
+  | "UNSET";
+
+interface PaceResult {
+  status: PaceStatus;
+  /** `(achieved / expected) * 100`. 0 when just started / unset. */
+  pace: number;
+  /** Revenue the rep should have hit by now (`target * elapsed`). */
+  expected: number;
+  /** Fraction of the period elapsed, 0–1. */
+  elapsed: number;
+}
+
+function isUnset(snap: PeriodSnapshot | null | undefined): boolean {
+  return !snap || snap.target_amount <= 0 || snap.status === "UNSET";
+}
+
+function computePace(
+  snapshot: PeriodSnapshot | null | undefined,
+  period: Period,
+): PaceResult {
+  if (isUnset(snapshot)) {
+    return { status: "UNSET", pace: 0, expected: 0, elapsed: 0 };
+  }
+  const target = snapshot!.target_amount;
+  const achieved = snapshot!.actual_amount;
+  // `elapsedPctOf` already returns 0–100 from real clock math; clamp to
+  // [0, 1] so we don't divide by a near-zero or go past 100% after period end.
+  const elapsed = Math.min(1, Math.max(0, elapsedPctOf(period) / 100));
+
+  // Very early in the period: pace is meaningless (huge division), so we
+  // bail out to a neutral "Just started" state per the spec.
+  if (elapsed < 0.1) {
+    return {
+      status: "JUST_STARTED",
+      pace: 0,
+      expected: target * elapsed,
+      elapsed,
+    };
+  }
+
+  const expected = target * elapsed;
+  if (expected <= 0) {
+    return { status: "JUST_STARTED", pace: 0, expected: 0, elapsed };
+  }
+
+  const pace = (achieved / expected) * 100;
+  let status: PaceStatus;
+  if (pace >= 100) status = "AHEAD";
+  else if (pace >= 90) status = "ON_TRACK";
+  else if (pace >= 70) status = "AT_RISK";
+  else status = "BEHIND";
+
+  return { status, pace, expected, elapsed };
+}
 
 const STATUS_META: Record<
-  RevenueStatus,
+  PaceStatus,
   {
     label: string;
     pill: string;
     text: string;
     bar: string;
-    rowBg: string;
     icon: LucideIcon;
   }
 > = {
-  BEHIND: {
-    label: "Behind",
-    pill: "bg-rose-50 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-900/40",
-    text: "text-rose-600 dark:text-rose-400",
-    bar: "bg-rose-500",
-    rowBg: "bg-rose-50/40 dark:bg-rose-950/10",
-    icon: TrendingDown,
+  JUST_STARTED: {
+    label: "Just started",
+    pill: "bg-zinc-100 text-zinc-600 ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700",
+    text: "text-zinc-500 dark:text-zinc-400",
+    bar: "bg-zinc-300 dark:bg-zinc-600",
+    icon: Clock,
+  },
+  AHEAD: {
+    label: "Ahead",
+    pill: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900/40",
+    text: "text-emerald-600 dark:text-emerald-400",
+    bar: "bg-emerald-500",
+    icon: CheckCircle2,
+  },
+  ON_TRACK: {
+    label: "On Track",
+    pill: "bg-zinc-100 text-zinc-700 ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-700",
+    text: "text-zinc-700 dark:text-zinc-200",
+    bar: "bg-zinc-500 dark:bg-zinc-400",
+    icon: TrendingUp,
   },
   AT_RISK: {
     label: "At Risk",
     pill: "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-900/40",
     text: "text-amber-600 dark:text-amber-400",
     bar: "bg-amber-500",
-    rowBg: "bg-amber-50/40 dark:bg-amber-950/10",
     icon: AlertTriangle,
   },
-  ON_TRACK: {
-    label: "On Track",
-    pill: "bg-sky-50 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-900/40",
-    text: "text-sky-600 dark:text-sky-400",
-    bar: "bg-sky-500",
-    rowBg: "",
-    icon: TrendingUp,
-  },
-  ACHIEVED: {
-    label: "Achieved",
-    pill: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-900/40",
-    text: "text-emerald-600 dark:text-emerald-400",
-    bar: "bg-emerald-500",
-    rowBg: "",
-    icon: CheckCircle2,
+  BEHIND: {
+    label: "Behind",
+    pill: "bg-rose-50 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-900/40",
+    text: "text-rose-600 dark:text-rose-400",
+    bar: "bg-rose-500",
+    icon: TrendingDown,
   },
   UNSET: {
     label: "Unset",
     pill: "bg-zinc-100 text-zinc-600 ring-1 ring-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-700",
     text: "text-zinc-400",
     bar: "bg-zinc-300",
-    rowBg: "",
     icon: MinusCircle,
   },
 };
-
-/** A `(period, snapshot)` pair where snapshot may be missing entirely. */
-function isUnset(snap: PeriodSnapshot | null | undefined): boolean {
-  return !snap || snap.target_amount <= 0 || snap.status === "UNSET";
-}
 
 // ---------- Screen ---------------------------------------------------------
 
@@ -364,14 +484,23 @@ function MonitorTeamTab() {
     user_ids: selectedIds.length > 0 ? selectedIds : undefined,
   });
 
-  const tallies = monitor.data?.tallies ?? {
-    behind: 0,
-    at_risk: 0,
-    on_track: 0,
-    achieved: 0,
-    unset: 0,
-  };
   const rows = monitor.data?.rows ?? [];
+
+  // Recompute tallies client-side using pace status. The backend's `tallies`
+  // bands by achieved/target ratio, which flags everyone "Behind" on day 1
+  // of a period — we want pace-vs-expected counts instead.
+  const tallies = useMemo(() => {
+    const t = { behind: 0, at_risk: 0, on_track: 0, ahead: 0 };
+    for (const row of rows) {
+      const { status } = computePace(row.active_period, period);
+      if (status === "BEHIND") t.behind++;
+      else if (status === "AT_RISK") t.at_risk++;
+      else if (status === "ON_TRACK" || status === "JUST_STARTED") t.on_track++;
+      else if (status === "AHEAD") t.ahead++;
+      // UNSET excluded from tallies.
+    }
+    return t;
+  }, [rows, period]);
 
   return (
     <div className="space-y-5">
@@ -380,7 +509,7 @@ function MonitorTeamTab() {
           icon={XCircle}
           accent="text-rose-600"
           accentBg="bg-rose-50 dark:bg-rose-950/30"
-          label="Behind target"
+          label="Behind"
           value={tallies.behind}
         />
         <KpiTile
@@ -392,8 +521,8 @@ function MonitorTeamTab() {
         />
         <KpiTile
           icon={TrendingUp}
-          accent="text-sky-600"
-          accentBg="bg-sky-50 dark:bg-sky-950/30"
+          accent="text-zinc-600 dark:text-zinc-300"
+          accentBg="bg-zinc-100 dark:bg-zinc-800/40"
           label="On track"
           value={tallies.on_track}
         />
@@ -401,8 +530,8 @@ function MonitorTeamTab() {
           icon={CheckCircle2}
           accent="text-emerald-600"
           accentBg="bg-emerald-50 dark:bg-emerald-950/30"
-          label="Achieved"
-          value={tallies.achieved}
+          label="Ahead"
+          value={tallies.ahead}
         />
       </div>
 
@@ -443,6 +572,7 @@ function MonitorTeamTab() {
           periods={rows[0]!.all_periods}
           activePeriod={period}
           onPeriodChange={setPeriod}
+          profileHref={`/teams/sales?member=${rows[0]!.user.id}`}
         />
       ) : (
         <div className="space-y-3">
@@ -661,9 +791,10 @@ function PeriodSnapshotCard({
   snapshot: PeriodSnapshot | null;
   highlighted: boolean;
 }) {
-  const noTarget = isUnset(snapshot);
-  const status: RevenueStatus = noTarget ? "UNSET" : snapshot!.status;
-  const meta = STATUS_META[status];
+  const pace = computePace(snapshot, period);
+  const elapsedSummary = periodElapsedSummary(period);
+  const noTarget = pace.status === "UNSET";
+  const meta = STATUS_META[pace.status];
   const target = snapshot?.target_amount ?? 0;
   const actual = snapshot?.actual_amount ?? 0;
   const pct = snapshot?.progress_pct ?? 0;
@@ -673,17 +804,11 @@ function PeriodSnapshotCard({
       className={cn(
         "p-3",
         highlighted && "ring-2 ring-indigo-200 dark:ring-indigo-900/40",
-        !noTarget &&
-          status === "BEHIND" &&
+        pace.status === "BEHIND" &&
           "border-rose-200/70 dark:border-rose-900/40",
-        !noTarget &&
-          status === "AT_RISK" &&
+        pace.status === "AT_RISK" &&
           "border-amber-200/70 dark:border-amber-900/40",
-        !noTarget &&
-          status === "ON_TRACK" &&
-          "border-sky-200/70 dark:border-sky-900/40",
-        !noTarget &&
-          status === "ACHIEVED" &&
+        pace.status === "AHEAD" &&
           "border-emerald-200/70 dark:border-emerald-900/40",
       )}
     >
@@ -704,13 +829,24 @@ function PeriodSnapshotCard({
         {noTarget ? (
           <span className="text-zinc-400">No target</span>
         ) : (
-          formatCurrency(target, "INR")
+          formatCurrency(actual, "INR")
         )}
       </div>
-      <div className="mt-1 text-[11px] tabular-nums text-zinc-500">
-        {noTarget
-          ? "Set one from Assign targets"
-          : `${formatCurrency(actual, "INR")} achieved · ${pct}%`}
+      <div className="mt-1 space-y-0.5 text-[11px] text-zinc-500">
+        {noTarget ? (
+          <div>Set one from Assign targets · {elapsedSummary.label}</div>
+        ) : (
+          <>
+            <div className="truncate tabular-nums">
+              of {formatCurrency(target, "INR")} · {elapsedSummary.label}
+            </div>
+            <div className="truncate tabular-nums">
+              {pace.status === "JUST_STARTED"
+                ? `Expected ${formatCurrency(pace.expected, "INR")} by today`
+                : `Expected ${formatCurrency(pace.expected, "INR")} · ${Math.round(pace.pace)}% pace`}
+            </div>
+          </>
+        )}
       </div>
       {!noTarget ? (
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
@@ -733,11 +869,19 @@ export function SingleRepDetailedView({
   periods,
   activePeriod,
   onPeriodChange,
+  profileHref,
 }: {
   user: { id: string; name: string };
   periods: Partial<Record<Period, PeriodSnapshot | null>>;
   activePeriod: Period;
   onPeriodChange: (p: Period) => void;
+  /**
+   * When provided, renders a "Manage profile" link in the rep header that
+   * deep-links into the team detail screen (which auto-opens the member
+   * sheet via `?member=<id>`). Omit to hide the affordance — e.g. for the
+   * rep's own My Targets view, where this isn't applicable.
+   */
+  profileHref?: string;
 }) {
   const activeSnapshot = periods[activePeriod] ?? null;
 
@@ -754,10 +898,19 @@ export function SingleRepDetailedView({
             {getInitials(user.name)}
           </AvatarFallback>
         </Avatar>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="truncate text-base font-semibold">{user.name}</div>
           <div className="truncate text-xs text-zinc-500">Sales Rep</div>
         </div>
+        {profileHref ? (
+          <Link
+            href={profileHref}
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
+          >
+            <UserCog className="h-3.5 w-3.5" aria-hidden />
+            Manage profile
+          </Link>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -792,9 +945,11 @@ function PeriodTile({
   onClick: () => void;
 }) {
   const Icon = PERIOD_ICON[period];
-  const noTarget = isUnset(snapshot);
-  const status: RevenueStatus = noTarget ? "UNSET" : snapshot!.status;
-  const meta = STATUS_META[status];
+  const pace = computePace(snapshot, period);
+  const elapsedSummary = periodElapsedSummary(period);
+  const noTarget = pace.status === "UNSET";
+  const justStarted = pace.status === "JUST_STARTED";
+  const meta = STATUS_META[pace.status];
   const target = snapshot?.target_amount ?? 0;
   const actual = snapshot?.actual_amount ?? 0;
   const pct = snapshot?.progress_pct ?? 0;
@@ -852,19 +1007,28 @@ function PeriodTile({
         </div>
       ) : null}
 
-      <div className="mt-2 flex items-baseline justify-between gap-2">
-        <span className="truncate text-[11px] text-zinc-500">
-          {noTarget
-            ? "Set from Assign targets"
-            : `of ${formatCurrency(target, "INR")}`}
-        </span>
-        {!noTarget ? (
-          <span
-            className={cn("text-xs font-semibold tabular-nums", meta.text)}
-          >
-            {pct}%
-          </span>
-        ) : null}
+      <div className="mt-2 space-y-0.5 text-[11px] leading-snug text-zinc-500">
+        {noTarget ? (
+          <div>Set from Assign targets · {elapsedSummary.label}</div>
+        ) : (
+          <>
+            <div className="truncate">
+              of {formatCurrency(target, "INR")} · {elapsedSummary.label}
+            </div>
+            {justStarted ? (
+              <div className="truncate">
+                Expected {formatCurrency(pace.expected, "INR")} by today
+              </div>
+            ) : (
+              <div className="truncate">
+                Expected {formatCurrency(pace.expected, "INR")} ·{" "}
+                <span className={cn("font-semibold", meta.text)}>
+                  {Math.round(pace.pace)}% pace
+                </span>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </button>
   );
@@ -877,16 +1041,15 @@ function DetailedBreakdownCard({
   period: Period;
   snapshot: PeriodSnapshot | null;
 }) {
-  const noTarget = isUnset(snapshot);
-  const status: RevenueStatus = noTarget ? "UNSET" : snapshot!.status;
-  const meta = STATUS_META[status];
+  const pace = computePace(snapshot, period);
+  const elapsedSummary = periodElapsedSummary(period);
+  const noTarget = pace.status === "UNSET";
+  const justStarted = pace.status === "JUST_STARTED";
+  const meta = STATUS_META[pace.status];
   const target = snapshot?.target_amount ?? 0;
   const actual = snapshot?.actual_amount ?? 0;
   const pct = snapshot?.progress_pct ?? 0;
   const ends = periodEndsLabel(period);
-  const remaining = Math.max(0, target - actual);
-  const elapsed = elapsedPctOf(period);
-  const pace = noTarget ? 0 : pct - elapsed;
 
   // SVG ring math: r=42 → circumference ≈ 263.89
   const R = 42;
@@ -903,6 +1066,9 @@ function DetailedBreakdownCard({
               {PERIOD_HUMAN[period]} revenue
             </div>
             <h3 className="mt-0.5 text-xl font-bold">Detailed breakdown</h3>
+            <div className="mt-1 text-xs tabular-nums text-zinc-500">
+              {elapsedSummary.label}
+            </div>
           </div>
           <span
             className={cn(
@@ -980,19 +1146,25 @@ function DetailedBreakdownCard({
               value={noTarget ? "—" : formatCurrency(target, "INR")}
             />
             <StatTile
-              label="Remaining"
-              value={noTarget ? "—" : formatCurrency(remaining, "INR")}
-              accent="rose"
+              label="Expected by today"
+              value={noTarget ? "—" : formatCurrency(pace.expected, "INR")}
+              accent="sky"
             />
             <StatTile
-              label="Pace vs expected"
+              label="Pace"
               value={
-                noTarget
+                noTarget || justStarted
                   ? "—"
-                  : `${pace >= 0 ? "+" : ""}${Math.round(pace)}%`
+                  : `${Math.round(pace.pace)}%`
               }
               accent="sky"
-              TrendIcon={pace >= 0 ? TrendingUp : TrendingDown}
+              TrendIcon={
+                noTarget || justStarted
+                  ? undefined
+                  : pace.pace >= 100
+                    ? TrendingUp
+                    : TrendingDown
+              }
             />
           </div>
         </div>
