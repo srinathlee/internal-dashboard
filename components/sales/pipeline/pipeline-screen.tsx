@@ -28,6 +28,7 @@ import {
   toApiStage,
   toLocalStage,
 } from "@/lib/api/adapters";
+import { sendBrochure } from "@/lib/api/sales-brochure";
 import { useLeadMutations, useLeadPeople, usePipeline } from "@/lib/hooks/use-leads";
 import {
   usePipelineStageMutations,
@@ -674,8 +675,7 @@ export function PipelineScreen() {
       <SendBrochureModal
         open={sendBrochureOpen}
         onOpenChange={setSendBrochureOpen}
-        // TODO: wire `onSend={(phone) => sendBrochureApi(phone)}` once the
-        // WhatsApp endpoint is available.
+        onSend={(phone) => sendBrochure({ phone })}
       />
 
       <StageModal

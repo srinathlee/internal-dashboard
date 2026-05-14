@@ -15,22 +15,39 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ApiError } from "@/lib/api/client";
+import type { SendBrochureResponse } from "@/lib/api/sales-brochure";
+import { errorMessage } from "@/lib/hooks/use-async";
 
 interface SendBrochureModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /**
-   * Backend hook for delivering the brochure over WhatsApp. The parent
-   * supplies the actual API call once it's wired; until then this is a
-   * promise that resolves after a short delay so the loading state can be
-   * verified end-to-end.
+   * Sends the brochure. Returns the `SendBrochureResponse` so the toast can
+   * surface the backend-normalized E.164 number, or `void` for the demo /
+   * placeholder mode. The modal owns the success / error toasts; the parent
+   * just supplies the API call.
    */
-  onSend?: (phone: string) => Promise<void>;
+  onSend?: (phone: string) => Promise<SendBrochureResponse | void>;
 }
 
 /** Strip non-digits — phone fields commonly receive spaces / dashes / +91. */
 function digitsOnly(input: string): string {
   return input.replace(/\D+/g, "");
+}
+
+/**
+ * Pull `retry_after` (seconds) from a 429 ApiError. The backend nests it in
+ * `error.details.retry_after`; the raw body shape is `{ error: { code, message, details } }`.
+ */
+function extractRetryAfter(err: unknown): number | null {
+  if (!(err instanceof ApiError) || err.status !== 429) return null;
+  const body = err.body as
+    | { error?: { details?: { retry_after?: unknown } } }
+    | null;
+  const ra = body?.error?.details?.retry_after;
+  if (typeof ra === "number" && Number.isFinite(ra)) return ra;
+  return null;
 }
 
 export function SendBrochureModal({
@@ -61,21 +78,37 @@ export function SendBrochureModal({
     setError(null);
     setSubmitting(true);
     try {
+      let normalized: string | null = null;
       if (onSend) {
-        await onSend(cleaned);
+        const res = await onSend(cleaned);
+        if (res && typeof res === "object" && "to" in res) {
+          normalized = res.to;
+        }
       } else {
-        // Placeholder until the backend endpoint is wired. Swap this for a
-        // real `sendBrochure(phone)` call when the API ships.
+        // Placeholder mode (no parent wiring): resolve after a short delay
+        // so the loading state is visible during development.
         await new Promise((r) => setTimeout(r, 600));
       }
       toast.success("Brochure sent", {
-        description: `WhatsApp message dispatched to ${cleaned}.`,
+        description: `WhatsApp message dispatched to ${normalized ?? cleaned}.`,
       });
       onOpenChange(false);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to send brochure";
-      toast.error("Couldn't send brochure", { description: message });
+      const retryAfter = extractRetryAfter(err);
+      if (retryAfter !== null) {
+        const seconds = Math.max(1, Math.round(retryAfter));
+        toast.error("Rate limit reached", {
+          description: `Too many sends. Try again in ${seconds}s.`,
+        });
+      } else if (err instanceof ApiError && err.code === "INVALID_PHONE") {
+        // Surface validation errors inline so the user can fix the number
+        // without losing context.
+        setError("That phone number isn't valid. Check the digits and country code.");
+      } else {
+        toast.error("Couldn't send brochure", {
+          description: errorMessage(err),
+        });
+      }
     } finally {
       setSubmitting(false);
     }

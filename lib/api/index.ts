@@ -13,5 +13,6 @@ export * as subadmins from "./sales-subadmins";
 export * as fieldPins from "./sales-field-pins";
 export * as scoring from "./sales-scoring";
 export * as revenueTargets from "./sales-revenue-targets";
+export * as brochure from "./sales-brochure";
 export * as audit from "./sales-audit";
 export * as scorecard from "./sales-scorecard";
