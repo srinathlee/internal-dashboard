@@ -12,6 +12,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronUp,
   Clock,
   Flame,
   IndianRupee,
@@ -563,17 +564,6 @@ function MonitorTeamTab() {
         <Card className="grid place-items-center py-12 text-sm text-zinc-500">
           Pick at least one rep from the dropdown to see their targets.
         </Card>
-      ) : rows.length === 1 ? (
-        <SingleRepDetailedView
-          user={{
-            id: rows[0]!.user.id,
-            name: rows[0]!.user.name,
-          }}
-          periods={rows[0]!.all_periods}
-          activePeriod={period}
-          onPeriodChange={setPeriod}
-          profileHref={`/teams/sales?member=${rows[0]!.user.id}`}
-        />
       ) : (
         <div className="space-y-3">
           {rows.map((r) => (
@@ -583,6 +573,7 @@ function MonitorTeamTab() {
               name={r.user.name}
               periods={r.all_periods}
               activePeriod={period}
+              profileHref={`/teams/sales?member=${r.user.id}`}
             />
           ))}
         </div>
@@ -743,15 +734,20 @@ function RepTargetCard({
   name,
   periods,
   activePeriod,
+  profileHref,
 }: {
   userId: string;
   name: string;
   periods: Partial<Record<Period, PeriodSnapshot | null>>;
   activePeriod: Period;
+  profileHref?: string;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const activeSnapshot = periods[activePeriod] ?? null;
+
   return (
     <Card className="overflow-hidden p-0">
-      <div className="flex items-center gap-2.5 border-b border-zinc-200/60 px-4 py-3 dark:border-zinc-800/60">
+      <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200/60 px-4 py-3 dark:border-zinc-800/60">
         <Avatar className="h-8 w-8 shrink-0">
           <AvatarFallback
             className={cn(
@@ -762,10 +758,38 @@ function RepTargetCard({
             {getInitials(name)}
           </AvatarFallback>
         </Avatar>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{name}</div>
           <div className="truncate text-xs text-zinc-500">Sales Rep</div>
         </div>
+        {profileHref ? (
+          <Link
+            href={profileHref}
+            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
+          >
+            <UserCog className="h-3.5 w-3.5" aria-hidden />
+            Manage profile
+          </Link>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls={`rep-details-${userId}`}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            expanded
+              ? "border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-950/60"
+              : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900",
+          )}
+        >
+          {expanded ? "Hide details" : "View details"}
+          {expanded ? (
+            <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+          )}
+        </button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 px-4 py-4 sm:grid-cols-3 lg:grid-cols-5">
@@ -778,6 +802,18 @@ function RepTargetCard({
           />
         ))}
       </div>
+
+      {expanded ? (
+        <div
+          id={`rep-details-${userId}`}
+          className="border-t border-zinc-200/60 px-4 pb-5 pt-4 dark:border-zinc-800/60"
+        >
+          <DetailedBreakdownCard
+            period={activePeriod}
+            snapshot={activeSnapshot}
+          />
+        </div>
+      ) : null}
     </Card>
   );
 }
