@@ -9,6 +9,7 @@ import {
   ScrollText,
   Settings,
   SlidersHorizontal,
+  Target,
   Trophy,
   Users,
   type LucideIcon,
@@ -166,6 +167,16 @@ export const NAV_ITEMS: NavItem[] = [
     // admins from other teams are filtered out.
     show: (a) => isSalesAdminOrSuperAdmin(a),
   },
+  {
+    label: "Target management",
+    href: "/sales/targets",
+    icon: Target,
+    group: "salesTeam",
+    // Super-admin-only: org-wide target oversight and assignment. Sales
+    // admins manage metric definitions; only super-admin assigns hard
+    // numeric targets to individual reps.
+    show: (a) => a.user?.role === "super_admin",
+  },
 
   // ----- Bottom group: Settings always last -----
   {
@@ -212,6 +223,7 @@ export const PAGE_TITLE_BY_PATH: Record<string, string> = {
   "/sales/scorecard": "Scorecard",
   "/sales/field-location": "Field location",
   "/sales/metrics": "Metric management",
+  "/sales/targets": "Target management",
   "/team": "Team",
   "/teams": "Teams",
   "/audit-log": "Audit log",
