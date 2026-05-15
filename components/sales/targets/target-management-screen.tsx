@@ -4,29 +4,22 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
-  AlertOctagon,
   AlertTriangle,
   BarChart3,
   Calendar,
   CalendarDays,
-  Check,
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
   Clock,
   Flame,
   IndianRupee,
   Loader2,
   MinusCircle,
   Pencil,
-  Search,
   Target as TargetIcon,
   Trash2,
   TrendingDown,
   TrendingUp,
   UserCog,
-  Users,
-  XCircle,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -43,11 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
 import { getInitials } from "@/lib/format";
@@ -55,7 +43,6 @@ import { formatCurrency } from "@/lib/format-metric";
 import { useLeadPeople } from "@/lib/hooks/use-leads";
 import { errorMessage } from "@/lib/hooks/use-async";
 import {
-  useMonitorBoard,
   useRepRevenueTargets,
   useRevenueTargetMutations,
 } from "@/lib/hooks/use-revenue-targets";
@@ -64,6 +51,8 @@ import type {
   RevenuePeriod,
 } from "@/lib/api/sales-revenue-targets";
 import { cn } from "@/lib/utils";
+
+import { MonitorTeamBoard } from "./monitor-team-board";
 
 // ---------- Period model ---------------------------------------------------
 
@@ -405,7 +394,7 @@ export function TargetManagementScreen() {
     <div className="space-y-6">
       <PageHeader
         title="Target management"
-        description="Assign a target amount for each period and track team progress against it."
+        description="Track leads, sprint completion, and revenue targets across your team."
       />
 
       <div className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white p-1 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
@@ -423,7 +412,7 @@ export function TargetManagementScreen() {
         />
       </div>
 
-      {tab === "monitor" ? <MonitorTeamTab /> : <AssignTargetsTab />}
+      {tab === "monitor" ? <MonitorTeamBoard /> : <AssignTargetsTab />}
     </div>
   );
 }
@@ -456,445 +445,6 @@ function TabButton({
   );
 }
 
-// =============================================================
-// Monitor team
-// =============================================================
-
-function MonitorTeamTab() {
-  const [period, setPeriod] = useState<Period>("DAILY");
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const peopleQuery = useLeadPeople();
-  const people = useMemo(
-    () => peopleQuery.data ?? [],
-    [peopleQuery.data],
-  );
-
-  // Default to "all reps selected" once people load.
-  useEffect(() => {
-    if (selectedIds.length === 0 && people.length > 0) {
-      setSelectedIds(people.map((p) => p.id));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [people.length]);
-
-  // The monitor endpoint returns tallies + rows + all_periods in one shot.
-  // We filter rows client-side by selectedIds so the dropdown stays snappy
-  // — but we also pass `user_ids` to the API for backend-side filtering.
-  const monitor = useMonitorBoard({
-    period,
-    user_ids: selectedIds.length > 0 ? selectedIds : undefined,
-  });
-
-  const rows = monitor.data?.rows ?? [];
-
-  // Recompute tallies client-side using pace status. The backend's `tallies`
-  // bands by achieved/target ratio, which flags everyone "Behind" on day 1
-  // of a period — we want pace-vs-expected counts instead.
-  const tallies = useMemo(() => {
-    const t = { behind: 0, at_risk: 0, on_track: 0, ahead: 0 };
-    for (const row of rows) {
-      const { status } = computePace(row.active_period, period);
-      if (status === "BEHIND") t.behind++;
-      else if (status === "AT_RISK") t.at_risk++;
-      else if (status === "ON_TRACK" || status === "JUST_STARTED") t.on_track++;
-      else if (status === "AHEAD") t.ahead++;
-      // UNSET excluded from tallies.
-    }
-    return t;
-  }, [rows, period]);
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiTile
-          icon={XCircle}
-          accent="text-rose-600"
-          accentBg="bg-rose-50 dark:bg-rose-950/30"
-          label="Behind"
-          value={tallies.behind}
-        />
-        <KpiTile
-          icon={AlertOctagon}
-          accent="text-amber-600"
-          accentBg="bg-amber-50 dark:bg-amber-950/30"
-          label="At risk"
-          value={tallies.at_risk}
-        />
-        <KpiTile
-          icon={TrendingUp}
-          accent="text-zinc-600 dark:text-zinc-300"
-          accentBg="bg-zinc-100 dark:bg-zinc-800/40"
-          label="On track"
-          value={tallies.on_track}
-        />
-        <KpiTile
-          icon={CheckCircle2}
-          accent="text-emerald-600"
-          accentBg="bg-emerald-50 dark:bg-emerald-950/30"
-          label="Ahead"
-          value={tallies.ahead}
-        />
-      </div>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <PeriodTabs value={period} onChange={setPeriod} />
-        <RepMultiSelect
-          people={people}
-          selectedIds={selectedIds}
-          onChange={setSelectedIds}
-        />
-      </div>
-
-      {monitor.error ? (
-        <Card className="grid place-items-center py-12 text-sm text-rose-600">
-          Couldn't load the team board: {errorMessage(monitor.error)}
-        </Card>
-      ) : monitor.isLoading && rows.length === 0 ? (
-        <div className="space-y-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Card key={i} className="h-24 animate-pulse" />
-          ))}
-        </div>
-      ) : people.length === 0 ? (
-        <Card className="grid place-items-center py-12 text-sm text-zinc-500">
-          <Users className="mb-2 h-6 w-6 text-zinc-400" aria-hidden />
-          No reps configured yet.
-        </Card>
-      ) : selectedIds.length === 0 ? (
-        <Card className="grid place-items-center py-12 text-sm text-zinc-500">
-          Pick at least one rep from the dropdown to see their targets.
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {rows.map((r) => (
-            <RepTargetCard
-              key={r.user.id}
-              userId={r.user.id}
-              name={r.user.name}
-              periods={r.all_periods}
-              activePeriod={period}
-              profileHref={`/teams/sales?member=${r.user.id}`}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RepMultiSelect({
-  people,
-  selectedIds,
-  onChange,
-}: {
-  people: { id: string; name: string }[];
-  selectedIds: string[];
-  onChange: (next: string[]) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return people;
-    return people.filter((p) => p.name.toLowerCase().includes(q));
-  }, [people, query]);
-
-  const toggle = (id: string) => {
-    onChange(
-      selectedIds.includes(id)
-        ? selectedIds.filter((x) => x !== id)
-        : [...selectedIds, id],
-    );
-  };
-
-  const allSelected =
-    people.length > 0 && selectedIds.length === people.length;
-
-  const label =
-    selectedIds.length === 0
-      ? "No reps selected"
-      : allSelected
-        ? "All reps"
-        : selectedIds.length === 1
-          ? people.find((p) => p.id === selectedIds[0])?.name ?? "1 rep"
-          : `${selectedIds.length} reps selected`;
-
-  return (
-    <DropdownMenu
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setQuery("");
-      }}
-    >
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label="Filter by rep"
-          className="inline-flex h-9 min-w-[12rem] items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900"
-        >
-          <Users className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-          <ChevronDown
-            className={cn(
-              "h-3.5 w-3.5 shrink-0 text-zinc-400 transition-transform",
-              open && "rotate-180",
-            )}
-            aria-hidden
-          />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 p-0">
-        <div className="border-b border-zinc-200 p-2 dark:border-zinc-800">
-          <div className="relative">
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
-            />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search reps…"
-              className="h-8 border-zinc-200 pl-7 text-sm dark:border-zinc-800"
-              autoFocus
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between border-b border-zinc-200 px-3 py-2 text-[11px] dark:border-zinc-800">
-          <span className="text-zinc-500">
-            {selectedIds.length} of {people.length} selected
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onChange(people.map((p) => p.id))}
-              className="font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-            >
-              All
-            </button>
-            <span aria-hidden className="text-zinc-300">
-              ·
-            </span>
-            <button
-              type="button"
-              onClick={() => onChange([])}
-              className="font-medium text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-            >
-              None
-            </button>
-          </div>
-        </div>
-
-        <ul className="max-h-72 overflow-y-auto py-1">
-          {filtered.length === 0 ? (
-            <li className="px-3 py-6 text-center text-xs text-zinc-500">
-              No matching reps.
-            </li>
-          ) : (
-            filtered.map((p) => {
-              const isSelected = selectedIds.includes(p.id);
-              return (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    onClick={() => toggle(p.id)}
-                    className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-sm transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-zinc-900"
-                  >
-                    <Avatar className="h-6 w-6">
-                      <AvatarFallback
-                        className={cn(
-                          "text-[9px] font-semibold text-white",
-                          colorForId(p.id),
-                        )}
-                      >
-                        {getInitials(p.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                    <span className="grid h-4 w-4 shrink-0 place-items-center text-indigo-600 dark:text-indigo-400">
-                      {isSelected ? (
-                        <Check className="h-3.5 w-3.5" aria-hidden />
-                      ) : null}
-                    </span>
-                  </button>
-                </li>
-              );
-            })
-          )}
-        </ul>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function RepTargetCard({
-  userId,
-  name,
-  periods,
-  activePeriod,
-  profileHref,
-}: {
-  userId: string;
-  name: string;
-  periods: Partial<Record<Period, PeriodSnapshot | null>>;
-  activePeriod: Period;
-  profileHref?: string;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const activeSnapshot = periods[activePeriod] ?? null;
-
-  return (
-    <Card className="overflow-hidden p-0">
-      <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200/60 px-4 py-3 dark:border-zinc-800/60">
-        <Avatar className="h-8 w-8 shrink-0">
-          <AvatarFallback
-            className={cn(
-              "text-[10px] font-semibold text-white",
-              colorForId(userId),
-            )}
-          >
-            {getInitials(name)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{name}</div>
-          <div className="truncate text-xs text-zinc-500">Sales Rep</div>
-        </div>
-        {profileHref ? (
-          <Link
-            href={profileHref}
-            className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
-          >
-            <UserCog className="h-3.5 w-3.5" aria-hidden />
-            Manage profile
-          </Link>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          aria-controls={`rep-details-${userId}`}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            expanded
-              ? "border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-950/60"
-              : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900",
-          )}
-        >
-          {expanded ? "Hide details" : "View details"}
-          {expanded ? (
-            <ChevronUp className="h-3.5 w-3.5" aria-hidden />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-          )}
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 px-4 py-4 sm:grid-cols-3 lg:grid-cols-5">
-        {PERIODS.map((p) => (
-          <PeriodSnapshotCard
-            key={p.key}
-            period={p.key}
-            snapshot={periods[p.key] ?? null}
-            highlighted={p.key === activePeriod}
-          />
-        ))}
-      </div>
-
-      {expanded ? (
-        <div
-          id={`rep-details-${userId}`}
-          className="border-t border-zinc-200/60 px-4 pb-5 pt-4 dark:border-zinc-800/60"
-        >
-          <DetailedBreakdownCard
-            period={activePeriod}
-            snapshot={activeSnapshot}
-          />
-        </div>
-      ) : null}
-    </Card>
-  );
-}
-
-function PeriodSnapshotCard({
-  period,
-  snapshot,
-  highlighted,
-}: {
-  period: Period;
-  snapshot: PeriodSnapshot | null;
-  highlighted: boolean;
-}) {
-  const pace = computePace(snapshot, period);
-  const elapsedSummary = periodElapsedSummary(period);
-  const noTarget = pace.status === "UNSET";
-  const meta = STATUS_META[pace.status];
-  const target = snapshot?.target_amount ?? 0;
-  const actual = snapshot?.actual_amount ?? 0;
-  const pct = snapshot?.progress_pct ?? 0;
-
-  return (
-    <Card
-      className={cn(
-        "p-3",
-        highlighted && "ring-2 ring-indigo-200 dark:ring-indigo-900/40",
-        pace.status === "BEHIND" &&
-          "border-rose-200/70 dark:border-rose-900/40",
-        pace.status === "AT_RISK" &&
-          "border-amber-200/70 dark:border-amber-900/40",
-        pace.status === "AHEAD" &&
-          "border-emerald-200/70 dark:border-emerald-900/40",
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-          {PERIOD_LABEL[period]}
-        </span>
-        <span
-          className={cn(
-            "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider",
-            meta.pill,
-          )}
-        >
-          {meta.label}
-        </span>
-      </div>
-      <div className="mt-2 text-sm font-semibold tabular-nums">
-        {noTarget ? (
-          <span className="text-zinc-400">No target</span>
-        ) : (
-          formatCurrency(actual, "INR")
-        )}
-      </div>
-      <div className="mt-1 space-y-0.5 text-[11px] text-zinc-500">
-        {noTarget ? (
-          <div>Set one from Assign targets · {elapsedSummary.label}</div>
-        ) : (
-          <>
-            <div className="truncate tabular-nums">
-              of {formatCurrency(target, "INR")} · {elapsedSummary.label}
-            </div>
-            <div className="truncate tabular-nums">
-              {pace.status === "JUST_STARTED"
-                ? `Expected ${formatCurrency(pace.expected, "INR")} by today`
-                : `Expected ${formatCurrency(pace.expected, "INR")} · ${Math.round(pace.pace)}% pace`}
-            </div>
-          </>
-        )}
-      </div>
-      {!noTarget ? (
-        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-          <span
-            className={cn("block h-full rounded-full", meta.bar)}
-            style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
-          />
-        </div>
-      ) : null}
-    </Card>
-  );
-}
 
 // =============================================================
 // Single-rep detailed view
@@ -1270,78 +820,6 @@ function StatTile({
   );
 }
 
-function KpiTile({
-  icon: Icon,
-  accent,
-  accentBg,
-  label,
-  value,
-}: {
-  icon: LucideIcon;
-  accent: string;
-  accentBg: string;
-  label: string;
-  value: number;
-}) {
-  return (
-    <Card className="p-4">
-      <div className="flex items-start justify-between gap-2">
-        <span
-          aria-hidden
-          className={cn(
-            "grid h-8 w-8 place-items-center rounded-md",
-            accentBg,
-            accent,
-          )}
-        >
-          <Icon className="h-4 w-4" />
-        </span>
-        <span className={cn("text-3xl font-bold tabular-nums", accent)}>
-          {value}
-        </span>
-      </div>
-      <div
-        className={cn(
-          "mt-1 text-[10px] font-semibold uppercase tracking-wider",
-          accent,
-        )}
-      >
-        {label}
-      </div>
-    </Card>
-  );
-}
-
-function PeriodTabs({
-  value,
-  onChange,
-}: {
-  value: Period;
-  onChange: (next: Period) => void;
-}) {
-  return (
-    <div className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-950">
-      {PERIODS.map((p) => {
-        const active = value === p.key;
-        return (
-          <button
-            key={p.key}
-            type="button"
-            onClick={() => onChange(p.key)}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              active
-                ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
-                : "text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-900",
-            )}
-          >
-            {p.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 // =============================================================
 // Assign targets

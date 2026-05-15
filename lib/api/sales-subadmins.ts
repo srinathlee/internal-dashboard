@@ -43,6 +43,117 @@ export function createSubadmin(input: CreateSubadminInput): Promise<ApiSubadmin>
   });
 }
 
+// ---- Atomic rep + targets create (POST /sales/teams/:teamId/reps) ----------
+
+export interface SalesRepLeadTargets {
+  weekly?: number;
+  monthly?: number;
+  quarterly?: number;
+  yearly?: number;
+}
+
+export interface SalesRepSprintRow {
+  count: number;
+  amount: number;
+}
+
+export interface SalesRepSprintTargets {
+  monthly?: SalesRepSprintRow;
+  quarterly?: SalesRepSprintRow;
+  yearly?: SalesRepSprintRow;
+}
+
+export interface SalesRepRevenueTargets {
+  monthly?: number;
+  quarterly?: number;
+  half_yearly?: number;
+  yearly?: number;
+}
+
+export interface CreateSalesRepWithTargetsInput {
+  rep: {
+    name: string;
+    email: string;
+    phone: string;
+    password: string;
+  };
+  targets: {
+    leads?: SalesRepLeadTargets;
+    sprints?: SalesRepSprintTargets;
+    revenue?: SalesRepRevenueTargets;
+  };
+  send_welcome_email?: boolean;
+}
+
+export type WelcomeEmailResult =
+  | { sent: true; to: string; message_id: string; sent_at: string }
+  | {
+      sent: false;
+      to: string;
+      reason: "skipped" | "smtp_error";
+      error?: string;
+    };
+
+export interface CreateSalesRepWithTargetsResponse {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    role: string;
+    team_id: string;
+    status: string;
+    must_change_password: boolean;
+    created_at: string;
+  };
+  targets: {
+    leads?: SalesRepLeadTargets;
+    sprints?: {
+      monthly?: { count: number; amount: number; currency: string };
+      quarterly?: { count: number; amount: number; currency: string };
+      yearly?: { count: number; amount: number; currency: string };
+    };
+    revenue?: {
+      monthly?: { amount: number; currency: string };
+      quarterly?: { amount: number; currency: string };
+      half_yearly?: { amount: number; currency: string };
+      yearly?: { amount: number; currency: string };
+    };
+  };
+  email: WelcomeEmailResult;
+}
+
+export function createSalesRepWithTargets(
+  teamId: string,
+  input: CreateSalesRepWithTargetsInput,
+): Promise<CreateSalesRepWithTargetsResponse> {
+  return apiData<CreateSalesRepWithTargetsResponse>(
+    `/api/v1/sales/teams/${encodeURIComponent(teamId)}/reps`,
+    { method: "POST", body: input },
+  );
+}
+
+export interface ResendWelcomeEmailInput {
+  reset_password: true;
+  new_password?: string;
+}
+
+export interface ResendWelcomeEmailResponse {
+  user_id: string;
+  email: WelcomeEmailResult;
+  password_rotated: boolean;
+}
+
+export function resendSalesRepWelcomeEmail(
+  userId: string,
+  input: ResendWelcomeEmailInput = { reset_password: true },
+): Promise<ResendWelcomeEmailResponse> {
+  return apiData<ResendWelcomeEmailResponse>(
+    `/api/v1/sales/subadmins/${encodeURIComponent(userId)}/resend-welcome-email`,
+    { method: "POST", body: input },
+  );
+}
+
 export function getSubadmin(
   id: string,
   signal?: AbortSignal,

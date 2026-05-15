@@ -4,6 +4,7 @@ import { useCallback } from "react";
 
 import {
   coachSubadmin,
+  createSalesRepWithTargets,
   createSubadmin,
   deleteSubadmin,
   getSubadmin,
@@ -11,10 +12,13 @@ import {
   listSubadmins,
   messageSubadmin,
   pinSubadminLocation,
+  resendSalesRepWelcomeEmail,
   updateSubadmin,
   updateSubadminTarget,
+  type CreateSalesRepWithTargetsInput,
   type CreateSubadminInput,
   type ListSubadminsQuery,
+  type ResendWelcomeEmailInput,
   type SubadminLocationInput,
   type UpdateSubadminInput,
 } from "@/lib/api/sales-subadmins";
@@ -52,6 +56,16 @@ export function useSubadminMutations() {
   return {
     create: useCallback(
       (input: CreateSubadminInput) => createSubadmin(input),
+      [],
+    ),
+    createRepWithTargets: useCallback(
+      (teamId: string, input: CreateSalesRepWithTargetsInput) =>
+        createSalesRepWithTargets(teamId, input),
+      [],
+    ),
+    resendWelcomeEmail: useCallback(
+      (userId: string, input?: ResendWelcomeEmailInput) =>
+        resendSalesRepWelcomeEmail(userId, input),
       [],
     ),
     update: useCallback(

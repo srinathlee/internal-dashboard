@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ApiError } from "@/lib/api/client";
 import { formatCurrency } from "@/lib/format-metric";
 import { errorMessage } from "@/lib/hooks/use-async";
 import { useSubadminMutations } from "@/lib/hooks/use-subadmins";
@@ -89,16 +90,18 @@ const DEFAULT_REVENUE: RevenueTargets = {
   yearly: 150_000,
 };
 
+type FieldErrors = Partial<
+  Record<"name" | "email" | "phone" | "password", string>
+>;
+
 /**
  * Three-step "Add member to sales" flow for super admins:
  *   1) Rep details — name / email / phone / initial password
  *   2) Set targets — leads, sprint completion, revenue generation
  *   3) Review     — confirm before creating
  *
- * Backend for the rich target shape isn't ready yet; we still POST through
- * the existing /sales/subadmins endpoint with the monthly lead target as
- * `target_hospitals` so a SALES_SUBADMIN row gets created. The full target
- * payload is collected client-side and ready to wire once the API lands.
+ * Posts to POST /api/v1/sales/teams/:teamId/reps, which atomically creates the
+ * rep, all three target groups, and dispatches the welcome email.
  */
 export function AddMemberStepperModal({
   open,
@@ -121,11 +124,22 @@ export function AddMemberStepperModal({
   const [targetTab, setTargetTab] = useState<TargetTab>("leads");
 
   const [submitting, setSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [done, setDone] = useState<{ email: string; password: string } | null>(
     null,
   );
 
   const mutations = useSubadminMutations();
+
+  const setFieldError = (field: keyof FieldErrors, message: string) =>
+    setFieldErrors((prev) => ({ ...prev, [field]: message }));
+  const clearFieldError = (field: keyof FieldErrors) =>
+    setFieldErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
 
   const reset = () => {
     setStep(1);
@@ -138,6 +152,7 @@ export function AddMemberStepperModal({
     setRevenue(DEFAULT_REVENUE);
     setTargetTab("leads");
     setSubmitting(false);
+    setFieldErrors({});
     setDone(null);
   };
 
@@ -173,27 +188,84 @@ export function AddMemberStepperModal({
 
   const handleCreate = async () => {
     setSubmitting(true);
+    setFieldErrors({});
     try {
-      // Backend doesn't yet accept the rich target payload. Keep the existing
-      // create contract; the monthly lead count becomes target_hospitals so
-      // the row is created with sensible defaults.
-      await mutations.create({
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
-        password,
-        status: "ACTIVE",
-        target_hospitals: leads.monthly,
-        target_period: "MONTHLY",
+      const result = await mutations.createRepWithTargets(teamId, {
+        rep: {
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          password,
+        },
+        targets: { leads, sprints, revenue },
+        send_welcome_email: true,
       });
-      toast.success("Member added");
-      setDone({ email: email.trim(), password });
+
+      // Always reveal the password in-app — email is the convenience path,
+      // the reveal card is the fallback.
+      setDone({ email: result.user.email, password });
+
+      if (result.email.sent) {
+        toast.success(`Welcome email sent to ${result.email.to}`);
+      } else {
+        toast.warning(
+          "Couldn't send welcome email — share credentials manually.",
+        );
+      }
       onCreated?.();
     } catch (err) {
-      toast.error("Couldn't add member", { description: errorMessage(err) });
+      handleCreateError(err);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleCreateError = (err: unknown) => {
+    if (!(err instanceof ApiError)) {
+      toast.error("Couldn't add member", { description: errorMessage(err) });
+      return;
+    }
+
+    if (err.status === 409 && err.code === "EMAIL_TAKEN") {
+      setStep(1);
+      setFieldError("email", "This email is already registered.");
+      toast.error("Email already in use");
+      return;
+    }
+    if (err.status === 409 && err.code === "PHONE_TAKEN") {
+      setStep(1);
+      setFieldError("phone", "This phone number is already registered.");
+      toast.error("Phone already in use");
+      return;
+    }
+
+    if (err.status === 400 && err.code === "VALIDATION_ERROR") {
+      const errors = extractValidationErrors(err.body);
+      const repErrors: FieldErrors = {};
+      const targetMessages: string[] = [];
+      for (const { field, message } of errors) {
+        if (field === "rep.name") repErrors.name = message;
+        else if (field === "rep.email") repErrors.email = message;
+        else if (field === "rep.phone") repErrors.phone = message;
+        else if (field === "rep.password") repErrors.password = message;
+        else targetMessages.push(`${field}: ${message}`);
+      }
+      if (Object.keys(repErrors).length > 0) {
+        setFieldErrors(repErrors);
+        setStep(1);
+        toast.error("Fix the highlighted fields");
+        return;
+      }
+      if (targetMessages.length > 0) {
+        setStep(2);
+        toast.error("Some targets are invalid", {
+          description: targetMessages.join("\n"),
+        });
+        return;
+      }
+    }
+
+    toast.error("Couldn't add member", { description: err.message });
   };
 
   if (done) {
@@ -237,10 +309,23 @@ export function AddMemberStepperModal({
               email={email}
               phone={phone}
               password={password}
-              onName={setName}
-              onEmail={setEmail}
-              onPhone={setPhone}
-              onPassword={setPassword}
+              errors={fieldErrors}
+              onName={(v) => {
+                setName(v);
+                clearFieldError("name");
+              }}
+              onEmail={(v) => {
+                setEmail(v);
+                clearFieldError("email");
+              }}
+              onPhone={(v) => {
+                setPhone(v);
+                clearFieldError("phone");
+              }}
+              onPassword={(v) => {
+                setPassword(v);
+                clearFieldError("password");
+              }}
             />
           ) : null}
 
@@ -383,6 +468,7 @@ function RepDetailsStep({
   email,
   phone,
   password,
+  errors,
   onName,
   onEmail,
   onPhone,
@@ -392,6 +478,7 @@ function RepDetailsStep({
   email: string;
   phone: string;
   password: string;
+  errors: FieldErrors;
   onName: (v: string) => void;
   onEmail: (v: string) => void;
   onPhone: (v: string) => void;
@@ -407,34 +494,37 @@ function RepDetailsStep({
         </p>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <IconField id="m-name" label="Full name" icon={User}>
+        <IconField id="m-name" label="Full name" icon={User} error={errors.name}>
           <Input
             id="m-name"
             value={name}
             onChange={(e) => onName(e.target.value)}
             placeholder="e.g. Arjun Mehta"
-            className="pl-9"
+            className={cn("pl-9", errors.name && fieldErrorClass)}
+            aria-invalid={errors.name ? true : undefined}
             autoFocus
           />
         </IconField>
-        <IconField id="m-email" label="Email" icon={Mail}>
+        <IconField id="m-email" label="Email" icon={Mail} error={errors.email}>
           <Input
             id="m-email"
             type="email"
             value={email}
             onChange={(e) => onEmail(e.target.value)}
             placeholder="arjun@nyra.ai"
-            className="pl-9"
+            className={cn("pl-9", errors.email && fieldErrorClass)}
+            aria-invalid={errors.email ? true : undefined}
           />
         </IconField>
-        <IconField id="m-phone" label="Phone" icon={Phone}>
+        <IconField id="m-phone" label="Phone" icon={Phone} error={errors.phone}>
           <Input
             id="m-phone"
             type="tel"
             value={phone}
             onChange={(e) => onPhone(e.target.value)}
             placeholder="9876543210"
-            className="pl-9"
+            className={cn("pl-9", errors.phone && fieldErrorClass)}
+            aria-invalid={errors.phone ? true : undefined}
           />
         </IconField>
         <IconField
@@ -442,6 +532,7 @@ function RepDetailsStep({
           label="Initial password"
           icon={Lock}
           hint="Min 8 chars · shown once"
+          error={errors.password}
         >
           <Input
             id="m-pw"
@@ -449,7 +540,8 @@ function RepDetailsStep({
             value={password}
             onChange={(e) => onPassword(e.target.value)}
             placeholder="••••••••"
-            className="pl-9 font-mono"
+            className={cn("pl-9 font-mono", errors.password && fieldErrorClass)}
+            aria-invalid={errors.password ? true : undefined}
           />
         </IconField>
       </div>
@@ -457,17 +549,22 @@ function RepDetailsStep({
   );
 }
 
+const fieldErrorClass =
+  "border-red-500 focus-visible:ring-red-500/30 dark:border-red-500";
+
 function IconField({
   id,
   label,
   icon: Icon,
   hint,
+  error,
   children,
 }: {
   id: string;
   label: string;
   icon: typeof User;
   hint?: string;
+  error?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -485,7 +582,13 @@ function IconField({
         />
         {children}
       </div>
-      {hint ? <p className="text-[11px] text-zinc-500">{hint}</p> : null}
+      {error ? (
+        <p className="text-[11px] font-medium text-red-600 dark:text-red-400" role="alert">
+          {error}
+        </p>
+      ) : hint ? (
+        <p className="text-[11px] text-zinc-500">{hint}</p>
+      ) : null}
     </div>
   );
 }
@@ -973,4 +1076,23 @@ function initial(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return "?";
   return trimmed[0]!.toUpperCase();
+}
+
+function extractValidationErrors(
+  body: unknown,
+): { field: string; message: string }[] {
+  if (!body || typeof body !== "object") return [];
+  const errObj = (body as { error?: unknown }).error;
+  if (!errObj || typeof errObj !== "object") return [];
+  const details = (errObj as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return [];
+  const errors = (details as { errors?: unknown }).errors;
+  if (!Array.isArray(errors)) return [];
+  return errors.flatMap((e) => {
+    if (!e || typeof e !== "object") return [];
+    const field = (e as { field?: unknown }).field;
+    const message = (e as { message?: unknown }).message;
+    if (typeof field !== "string" || typeof message !== "string") return [];
+    return [{ field, message }];
+  });
 }
