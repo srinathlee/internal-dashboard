@@ -424,7 +424,12 @@ export function TargetManagementScreen() {
         />
       </div>
 
-      {tab === "monitor" ? <MonitorTeamBoard /> : <AssignTargetsTab />}
+      <div
+        key={tab}
+        className="animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-out"
+      >
+        {tab === "monitor" ? <MonitorTeamBoard /> : <AssignTargetsTab />}
+      </div>
     </div>
   );
 }

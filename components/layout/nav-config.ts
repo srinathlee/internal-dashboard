@@ -3,7 +3,6 @@ import {
   Building2,
   Filter,
   GitBranch,
-  LayoutDashboard,
   Map,
   Network,
   ScrollText,
@@ -58,22 +57,6 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   // ----- Top group (flat, no label) -----
-  {
-    label: "Dashboard",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-    group: "top",
-    // Sales members and sales admins live inside the Sales Team section —
-    // their per-tab views (Pipeline, Scorecard, etc.) cover the same ground
-    // a generic dashboard would, so the Dashboard entry is hidden for them.
-    // Super admin doesn't get a dedicated Dashboard either; the org-wide
-    // surfaces (Hospitals, Performance, Teams) cover what they need.
-    show: (a) =>
-      a.can("performance:read:self") &&
-      !isSalesMember(a) &&
-      !isSalesAdmin(a) &&
-      a.user?.role !== "super_admin",
-  },
   {
     label: "Performance",
     href: "/performance",
@@ -225,7 +208,6 @@ export const NAV_GROUPS: NavGroup[] = [
 
 /** Used by the header to display the current page title. */
 export const PAGE_TITLE_BY_PATH: Record<string, string> = {
-  "/dashboard": "Dashboard",
   "/performance": "Performance",
   "/hospitals": "Hospitals",
   "/sales/leads": "Leads",

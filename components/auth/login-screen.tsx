@@ -21,10 +21,10 @@ export function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Already signed in? Bounce to dashboard.
+  // Already signed in? Bounce to performance.
   useEffect(() => {
     if (auth.isLoaded && auth.user) {
-      router.replace("/dashboard");
+      router.replace("/performance");
     }
   }, [auth.isLoaded, auth.user, router]);
 
@@ -38,7 +38,7 @@ export function LoginScreen() {
     setSubmitting(true);
     try {
       await auth.signIn(email, password);
-      router.replace("/dashboard");
+      router.replace("/performance");
     } catch (err) {
       // Surface the backend's message verbatim — login errors are usually
       // "Invalid credentials" or rate-limit messages users need to see.
