@@ -8,18 +8,24 @@ import {
   BarChart3,
   Calendar,
   CalendarDays,
+  Check,
   CheckCircle2,
   Clock,
   Flame,
+  Hash,
   IndianRupee,
   Loader2,
   MinusCircle,
   Pencil,
+  RotateCcw,
+  Save,
   Target as TargetIcon,
-  Trash2,
   TrendingDown,
   TrendingUp,
   UserCog,
+  Users,
+  Wallet,
+  X,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -39,13 +45,19 @@ import {
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
 import { getInitials } from "@/lib/format";
-import { formatCurrency } from "@/lib/format-metric";
-import { useLeadPeople } from "@/lib/hooks/use-leads";
+import { formatCurrency, formatNumber } from "@/lib/format-metric";
 import { errorMessage } from "@/lib/hooks/use-async";
 import {
-  useRepRevenueTargets,
-  useRevenueTargetMutations,
-} from "@/lib/hooks/use-revenue-targets";
+  useAssignTargets,
+  useAssignTargetsMutation,
+  useMetricCatalogue,
+  useTargetReps,
+} from "@/lib/hooks/use-metric-targets";
+import type {
+  MetricKey,
+  MetricPeriod,
+  TargetValuesMap,
+} from "@/lib/api/sales-metric-targets";
 import type {
   PeriodSnapshot,
   RevenuePeriod,
@@ -824,309 +836,472 @@ function StatTile({
 // =============================================================
 // Assign targets
 // =============================================================
+//
+// Wired to the multi-metric API in `sales-metric-targets.ts`. Metric
+// catalogue, rep list, and target values all come from the backend; the
+// save call is a partial PUT so only changed cells are sent.
+
+const ASSIGN_PERIODS: { key: MetricPeriod; label: string }[] = [
+  { key: "MONTHLY", label: "Monthly" },
+  { key: "QUARTERLY", label: "Quarterly" },
+  { key: "HALF_YEARLY", label: "Half-yearly" },
+  { key: "YEARLY", label: "Yearly" },
+];
+
+// Icon mapping is driven by `icon_hint` from the metric catalogue so the
+// backend can introduce a new metric without a frontend deploy.
+const METRIC_ICON_BY_HINT: Record<string, LucideIcon> = {
+  users: Users,
+  hash: Hash,
+  wallet: Wallet,
+  "indian-rupee": IndianRupee,
+};
+
+function metricIconFromHint(
+  hint: string,
+  fallbackUnit: "count" | "currency",
+): LucideIcon {
+  return (
+    METRIC_ICON_BY_HINT[hint] ??
+    (fallbackUnit === "currency" ? IndianRupee : Hash)
+  );
+}
+
+function emptyPeriodValues(): Record<MetricPeriod, number> {
+  return { MONTHLY: 0, QUARTERLY: 0, HALF_YEARLY: 0, YEARLY: 0 };
+}
 
 function AssignTargetsTab() {
-  const peopleQuery = useLeadPeople();
-  const people = useMemo(
-    () => peopleQuery.data ?? [],
-    [peopleQuery.data],
-  );
+  const catalogueQuery = useMetricCatalogue();
+  const repsQuery = useTargetReps();
+  const reps = useMemo(() => repsQuery.data ?? [], [repsQuery.data]);
+
+  const metrics = useMemo(() => {
+    const list = catalogueQuery.data?.metrics ?? [];
+    return [...list].sort((a, b) => a.display_order - b.display_order);
+  }, [catalogueQuery.data]);
 
   const [userId, setUserId] = useState<string>("");
-  const [applyAll, setApplyAll] = useState(false);
-  const [period, setPeriod] = useState<Period>("WEEKLY");
-  const [value, setValue] = useState<string>("");
-  const [submitting, setSubmitting] = useState(false);
+  const assignQuery = useAssignTargets(userId || null);
+  const { save } = useAssignTargetsMutation();
 
-  const mutations = useRevenueTargetMutations();
-  const repTargetsQuery = useRepRevenueTargets(userId || null);
+  const [working, setWorking] = useState<TargetValuesMap>(
+    () => ({}) as TargetValuesMap,
+  );
+  const [initial, setInitial] = useState<TargetValuesMap>(
+    () => ({}) as TargetValuesMap,
+  );
+  const [editing, setEditing] = useState<
+    { key: MetricKey; period: MetricPeriod } | null
+  >(null);
+  const [editValue, setEditValue] = useState<string>("");
+  const [saving, setSaving] = useState(false);
 
-  // Default the rep selection to the first available rep once people load.
+  // Default the rep selection to the first active rep once the list loads.
   useEffect(() => {
-    if (!userId && people.length > 0) setUserId(people[0]!.id);
-  }, [people, userId]);
+    if (userId) return;
+    const firstActive = reps.find((r) => r.is_active) ?? reps[0];
+    if (firstActive) setUserId(firstActive.id);
+  }, [reps, userId]);
 
-  const selectedRep = people.find((p) => p.id === userId) ?? null;
-  const repTargets = repTargetsQuery.data?.targets ?? {};
+  // Sync working/initial state when the assign payload arrives. The backend
+  // always returns every metric × period (filling missing ones with 0); we
+  // still merge against the catalogue defensively in case a response omits
+  // a metric the FE knows about.
+  useEffect(() => {
+    if (!assignQuery.data) return;
+    const merged: TargetValuesMap = {} as TargetValuesMap;
+    for (const m of metrics) {
+      const fromServer = assignQuery.data.targets[m.key];
+      merged[m.key] = {
+        MONTHLY: fromServer?.MONTHLY ?? 0,
+        QUARTERLY: fromServer?.QUARTERLY ?? 0,
+        HALF_YEARLY: fromServer?.HALF_YEARLY ?? 0,
+        YEARLY: fromServer?.YEARLY ?? 0,
+      };
+    }
+    setWorking(merged);
+    setInitial(JSON.parse(JSON.stringify(merged)) as TargetValuesMap);
+    setEditing(null);
+  }, [assignQuery.data, metrics]);
 
-  const handleAssign = async () => {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric) || numeric <= 0) {
-      toast.error("Target amount must be a positive number");
-      return;
-    }
-    if (!applyAll && !userId) {
-      toast.error("Pick a rep (or check Apply to all reps)");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      if (applyAll) {
-        const res = await mutations.bulkSet({
-          period,
-          target_amount: numeric,
-          currency: "INR",
-          user_ids: null,
-        });
-        toast.success(
-          `${PERIOD_LABEL[period]} target applied to ${res.applied_to} rep${res.applied_to === 1 ? "" : "s"}`,
-          res.skipped.length > 0
-            ? { description: `${res.skipped.length} skipped.` }
-            : undefined,
-        );
-      } else {
-        await mutations.setForUser(userId, {
-          period,
-          target_amount: numeric,
-          currency: "INR",
-        });
-        toast.success(`${PERIOD_LABEL[period]} target updated`);
+  const isDirty = useMemo(() => {
+    for (const m of metrics) {
+      for (const p of ASSIGN_PERIODS) {
+        if (
+          (working[m.key]?.[p.key] ?? 0) !== (initial[m.key]?.[p.key] ?? 0)
+        ) {
+          return true;
+        }
       }
-      setValue("");
-      await repTargetsQuery.refetch();
-    } catch (err) {
-      toast.error("Couldn't save target", { description: errorMessage(err) });
-    } finally {
-      setSubmitting(false);
     }
+    return false;
+  }, [working, initial, metrics]);
+
+  const selectedRep = reps.find((p) => p.id === userId) ?? null;
+  const loading =
+    catalogueQuery.isLoading ||
+    repsQuery.isLoading ||
+    (!!userId && assignQuery.isLoading && !assignQuery.data);
+  const fatalError = catalogueQuery.error ?? repsQuery.error;
+
+  const startEdit = (metricKey: MetricKey, period: MetricPeriod) => {
+    setEditing({ key: metricKey, period });
+    setEditValue(String(working[metricKey]?.[period] ?? 0));
   };
 
-  const handleDelete = async (p: Period) => {
-    if (!userId) return;
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Remove the ${PERIOD_LABEL[p].toLowerCase()} target?`)
-    ) {
+  const commitEdit = () => {
+    if (!editing) return;
+    const raw = Number(editValue);
+    if (!Number.isFinite(raw) || raw < 0 || !Number.isInteger(raw)) {
+      toast.error("Target must be a non-negative whole number");
       return;
     }
+    setWorking((prev) => {
+      const bucket = prev[editing.key] ?? emptyPeriodValues();
+      return {
+        ...prev,
+        [editing.key]: { ...bucket, [editing.period]: raw },
+      };
+    });
+    setEditing(null);
+  };
+
+  const cancelEdit = () => setEditing(null);
+
+  const handleReset = () => {
+    setWorking(JSON.parse(JSON.stringify(initial)) as TargetValuesMap);
+    setEditing(null);
+  };
+
+  const handleSave = async () => {
+    if (!userId || !isDirty || saving) return;
+    // Build a sparse patch — only send cells whose value actually changed,
+    // matching the spec's "unmentioned cells are untouched" behavior.
+    const patch: Partial<
+      Record<MetricKey, Partial<Record<MetricPeriod, number>>>
+    > = {};
+    for (const m of metrics) {
+      for (const p of ASSIGN_PERIODS) {
+        const newV = working[m.key]?.[p.key] ?? 0;
+        const oldV = initial[m.key]?.[p.key] ?? 0;
+        if (newV !== oldV) {
+          if (!patch[m.key]) patch[m.key] = {};
+          patch[m.key]![p.key] = newV;
+        }
+      }
+    }
+    if (Object.keys(patch).length === 0) return;
+
+    setSaving(true);
     try {
-      await mutations.remove(userId, p);
-      toast.success(`${PERIOD_LABEL[p]} target removed`);
-      await repTargetsQuery.refetch();
+      const res = await save(userId, patch);
+      // Use the server response as the new baseline — keeps Reset accurate
+      // even if the backend normalized values during the round-trip.
+      const merged: TargetValuesMap = {} as TargetValuesMap;
+      for (const m of metrics) {
+        const fromServer = res.targets[m.key];
+        merged[m.key] = {
+          MONTHLY: fromServer?.MONTHLY ?? 0,
+          QUARTERLY: fromServer?.QUARTERLY ?? 0,
+          HALF_YEARLY: fromServer?.HALF_YEARLY ?? 0,
+          YEARLY: fromServer?.YEARLY ?? 0,
+        };
+      }
+      setWorking(merged);
+      setInitial(JSON.parse(JSON.stringify(merged)) as TargetValuesMap);
+      toast.success(
+        res.changed_count === 1
+          ? "1 target saved"
+          : `${res.changed_count} targets saved`,
+      );
     } catch (err) {
-      toast.error("Couldn't remove target", {
+      toast.error("Couldn't save targets", {
         description: errorMessage(err),
       });
+    } finally {
+      setSaving(false);
     }
   };
 
-  const startEdit = (p: Period, current: number) => {
-    setPeriod(p);
-    setValue(String(current));
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  };
+  if (fatalError) {
+    return (
+      <Card className="border-rose-200 bg-rose-50 p-6 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400">
+        {errorMessage(fatalError)}
+      </Card>
+    );
+  }
 
   return (
-    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-      {/* ---------- Left: Assign form ---------- */}
-      <Card className="p-5">
-        <div className="flex items-start gap-3">
-          <span
-            aria-hidden
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400"
-          >
-            <TargetIcon className="h-4 w-4" />
-          </span>
-          <div>
-            <h2 className="text-base font-semibold">Assign new target</h2>
-            <p className="text-sm text-zinc-500">
-              Set the target amount for the selected period.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-5 space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              Sales rep
-            </label>
-            <Select
-              value={userId}
-              onValueChange={(v) => setUserId(v)}
-              disabled={applyAll}
-            >
-              <SelectTrigger className="h-10">
-                <SelectValue placeholder="Pick a rep" />
-              </SelectTrigger>
-              <SelectContent>
-                {people.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    <span className="inline-flex items-center gap-2">
-                      <Avatar className="h-5 w-5">
-                        <AvatarFallback
-                          className={cn(
-                            "text-[9px] text-white",
-                            colorForId(p.id),
-                          )}
-                        >
-                          {getInitials(p.name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      {p.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={applyAll}
-                onChange={(e) => setApplyAll(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-zinc-300"
-              />
-              <span className="text-zinc-700 dark:text-zinc-300">
-                Apply to all reps
-              </span>
-            </label>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              Period
-            </label>
-            <div className="inline-flex w-full items-center rounded-lg border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-950">
-              {PERIODS.map((p) => {
-                const active = period === p.key;
-                return (
-                  <button
-                    key={p.key}
-                    type="button"
-                    onClick={() => setPeriod(p.key)}
-                    className={cn(
-                      "flex-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      active
-                        ? "bg-indigo-50 text-indigo-700 shadow-sm dark:bg-indigo-950/40 dark:text-indigo-300"
-                        : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100",
-                    )}
-                  >
-                    {p.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              Target amount
-            </label>
-            <div className="relative">
-              <IndianRupee
-                className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
-                aria-hidden
-              />
-              <Input
-                type="number"
-                min="0"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                placeholder="500000"
-                className="h-10 pl-9 tabular-nums"
-              />
-            </div>
-          </div>
-
-          <Button
-            onClick={handleAssign}
-            disabled={submitting || !value || (!userId && !applyAll)}
-            className="h-11 w-full bg-indigo-600 hover:bg-indigo-700"
-          >
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            ) : (
-              <TargetIcon className="h-4 w-4" aria-hidden />
-            )}
-            Assign target
-          </Button>
-        </div>
-      </Card>
-
-      {/* ---------- Right: Current targets ---------- */}
-      <Card className="p-5">
-        <h2 className="text-base font-semibold">
-          {selectedRep ? `${selectedRep.name}'s targets` : "Targets"}
-        </h2>
-        <p className="text-sm text-zinc-500">
-          Current target amount per period.
-        </p>
-
-        <div className="mt-4 space-y-3">
-          {!userId ? (
-            <div className="rounded-md border border-dashed p-6 text-center text-xs text-zinc-500">
-              Select a rep to see their targets.
-            </div>
-          ) : repTargetsQuery.isLoading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-14 animate-pulse rounded-md bg-zinc-100 dark:bg-zinc-800"
-                />
-              ))}
-            </div>
-          ) : repTargetsQuery.error ? (
-            <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-xs text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400">
-              {errorMessage(repTargetsQuery.error)}
-            </div>
-          ) : (
-            PERIODS.map((p) => {
-              const entry = repTargets[p.key];
-              const current = entry?.target_amount ?? 0;
-              const hasTarget = current > 0;
-              return (
-                <div
-                  key={p.key}
-                  className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800"
-                >
-                  <div className="border-b border-zinc-200 bg-zinc-50/60 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/40">
-                    {p.label}
-                  </div>
-                  <div className="flex items-center justify-between gap-3 px-3 py-2.5">
-                    <span className="text-sm">Target amount</span>
-                    <div className="flex items-center gap-2">
-                      {hasTarget ? (
-                        <span className="text-sm font-semibold tabular-nums">
-                          {formatCurrency(current, "INR")}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-zinc-400">
-                          Not set
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => startEdit(p.key, current)}
-                        aria-label={`Edit ${p.label.toLowerCase()} target`}
-                        className="grid h-7 w-7 place-items-center rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-                      >
-                        <Pencil className="h-3.5 w-3.5" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(p.key)}
-                        disabled={!hasTarget}
-                        aria-label={`Remove ${p.label.toLowerCase()} target`}
+    <div className="space-y-5">
+      {/* ---------- Header: rep selector + actions ---------- */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-[240px] flex-1 sm:max-w-sm">
+          <Select value={userId} onValueChange={(v) => setUserId(v)}>
+            <SelectTrigger className="h-12 rounded-xl">
+              <SelectValue placeholder="Pick a rep">
+                {selectedRep ? (
+                  <span className="inline-flex items-center gap-2.5">
+                    <Avatar className="h-7 w-7">
+                      <AvatarFallback
                         className={cn(
-                          "grid h-7 w-7 place-items-center rounded-md",
-                          hasTarget
-                            ? "bg-rose-50 text-rose-600 hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-950/50"
-                            : "text-zinc-300 cursor-not-allowed dark:text-zinc-700",
+                          "text-[11px] font-semibold text-white",
+                          colorForId(selectedRep.id),
                         )}
                       >
-                        <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
+                        {getInitials(selectedRep.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="truncate font-medium">
+                      {selectedRep.name}
+                    </span>
+                  </span>
+                ) : null}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {reps.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  <span className="inline-flex items-center gap-2">
+                    <Avatar className="h-5 w-5">
+                      <AvatarFallback
+                        className={cn(
+                          "text-[9px] text-white",
+                          colorForId(p.id),
+                        )}
+                      >
+                        {getInitials(p.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className={cn(!p.is_active && "text-zinc-400")}>
+                      {p.name}
+                      {!p.is_active ? " (inactive)" : ""}
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      </Card>
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleReset}
+            disabled={!isDirty || saving}
+            className="h-12 rounded-xl px-5"
+          >
+            <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+            Reset
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleSave}
+            disabled={!isDirty || saving || !userId}
+            className="h-12 rounded-xl px-5"
+          >
+            {saving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : (
+              <Save className="h-3.5 w-3.5" aria-hidden />
+            )}
+            Save
+          </Button>
+        </div>
+      </div>
+
+      {/* ---------- Metric cards ---------- */}
+      {loading ? (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="h-72 animate-pulse" />
+          ))}
+        </div>
+      ) : metrics.length === 0 ? (
+        <Card className="p-12 text-center text-sm text-zinc-500">
+          No metrics configured.
+        </Card>
+      ) : assignQuery.error ? (
+        <Card className="border-rose-200 bg-rose-50 p-6 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400">
+          {errorMessage(assignQuery.error)}
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          {metrics.map((metric) => (
+            <MetricTargetCard
+              key={metric.key}
+              metricKey={metric.key}
+              label={metric.label}
+              unit={metric.unit}
+              icon={metricIconFromHint(metric.icon_hint, metric.unit)}
+              values={working[metric.key] ?? emptyPeriodValues()}
+              initialValues={initial[metric.key] ?? emptyPeriodValues()}
+              editing={editing}
+              editValue={editValue}
+              onEditValueChange={setEditValue}
+              onStartEdit={startEdit}
+              onCommitEdit={commitEdit}
+              onCancelEdit={cancelEdit}
+              disabled={!userId || saving}
+            />
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function MetricTargetCard({
+  metricKey,
+  label,
+  unit,
+  icon: Icon,
+  values,
+  initialValues,
+  editing,
+  editValue,
+  onEditValueChange,
+  onStartEdit,
+  onCommitEdit,
+  onCancelEdit,
+  disabled,
+}: {
+  metricKey: MetricKey;
+  label: string;
+  unit: "count" | "currency";
+  icon: LucideIcon;
+  values: Record<MetricPeriod, number>;
+  initialValues: Record<MetricPeriod, number>;
+  editing: { key: MetricKey; period: MetricPeriod } | null;
+  editValue: string;
+  onEditValueChange: (v: string) => void;
+  onStartEdit: (metricKey: MetricKey, period: MetricPeriod) => void;
+  onCommitEdit: () => void;
+  onCancelEdit: () => void;
+  disabled: boolean;
+}) {
+  const isCurrency = unit === "currency";
+  const UnitIcon = isCurrency ? IndianRupee : Hash;
+
+  const formatValue = (n: number): string =>
+    isCurrency ? formatCurrency(n, "INR") : formatNumber(n);
+
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
+        <div className="inline-flex items-center gap-2.5">
+          <Icon
+            className="h-4 w-4 text-violet-500 dark:text-violet-400"
+            aria-hidden
+          />
+          <h3 className="text-base font-semibold">{label}</h3>
+        </div>
+        <UnitIcon
+          className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500"
+          aria-hidden
+        />
+      </div>
+
+      <div>
+        {ASSIGN_PERIODS.map((p, idx) => {
+          const value = values[p.key] ?? 0;
+          const original = initialValues[p.key] ?? 0;
+          const dirty = value !== original;
+          const isEditing =
+            editing?.key === metricKey && editing.period === p.key;
+
+          return (
+            <div
+              key={p.key}
+              className={cn(
+                "flex items-center justify-between gap-3 px-5 py-3.5",
+                idx > 0 && "border-t border-zinc-100 dark:border-zinc-800",
+              )}
+            >
+              <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                {p.label}
+              </span>
+
+              {isEditing ? (
+                <div className="flex items-center gap-1.5">
+                  <div className="relative">
+                    <UnitIcon
+                      className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-zinc-400"
+                      aria-hidden
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      step="1"
+                      autoFocus
+                      value={editValue}
+                      onChange={(e) => onEditValueChange(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          onCommitEdit();
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          onCancelEdit();
+                        }
+                      }}
+                      className="h-8 w-28 pl-6 text-right text-sm tabular-nums"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onCommitEdit}
+                    aria-label="Apply"
+                    className="grid h-7 w-7 place-items-center rounded-md bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
+                  >
+                    <Check className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onCancelEdit}
+                    aria-label="Cancel"
+                    className="grid h-7 w-7 place-items-center rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "text-base font-bold tabular-nums",
+                      dirty
+                        ? "text-indigo-600 dark:text-indigo-400"
+                        : value > 0
+                          ? "text-zinc-900 dark:text-zinc-50"
+                          : "text-zinc-400",
+                    )}
+                  >
+                    {value > 0 ? formatValue(value) : "—"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onStartEdit(metricKey, p.key)}
+                    disabled={disabled}
+                    aria-label={`Edit ${p.label.toLowerCase()} ${label.toLowerCase()} target`}
+                    className={cn(
+                      "grid h-7 w-7 place-items-center rounded-md text-zinc-400 transition-colors",
+                      disabled
+                        ? "cursor-not-allowed opacity-50"
+                        : "hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300",
+                    )}
+                  >
+                    <Pencil className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 

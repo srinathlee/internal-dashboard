@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, SquarePen } from "lucide-react";
+import { Building2, SquarePen, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format-metric";
@@ -16,6 +16,13 @@ interface LeadsTableProps {
   onRowClick: (lead: Lead) => void;
   /** Edit icon click — opens the Edit lead Dialog. */
   onEditClick: (lead: Lead) => void;
+  /**
+   * Trash icon click — confirms then hard-deletes the lead. Omit to hide the
+   * delete affordance entirely (e.g. for non-super-admin viewers).
+   */
+  onDeleteClick?: (lead: Lead) => void;
+  /** True while a delete is in flight; disables the trash button for that row. */
+  deletingId?: string | null;
 }
 
 export function LeadsTable({
@@ -23,6 +30,8 @@ export function LeadsTable({
   selectedId,
   onRowClick,
   onEditClick,
+  onDeleteClick,
+  deletingId,
 }: LeadsTableProps) {
   if (leads.length === 0) {
     return (
@@ -101,20 +110,40 @@ export function LeadsTable({
                     {LEAD_SOURCE_LABEL[lead.source]}
                   </td>
                   <td className="px-2 py-3 text-right">
-                    <button
-                      type="button"
-                      aria-label={`Edit ${lead.clinicName}`}
-                      onClick={(e) => {
-                        // Edit icon opens the editor Dialog instead of the
-                        // row's detail Sheet; stop propagation so the row
-                        // handler doesn't fire as well.
-                        e.stopPropagation();
-                        onEditClick(lead);
-                      }}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
-                    >
-                      <SquarePen className="h-4 w-4" />
-                    </button>
+                    <div className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Edit ${lead.clinicName}`}
+                        onClick={(e) => {
+                          // Edit icon opens the editor Dialog instead of the
+                          // row's detail Sheet; stop propagation so the row
+                          // handler doesn't fire as well.
+                          e.stopPropagation();
+                          onEditClick(lead);
+                        }}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                      >
+                        <SquarePen className="h-4 w-4" />
+                      </button>
+                      {onDeleteClick ? (
+                        <button
+                          type="button"
+                          aria-label={`Delete ${lead.clinicName}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteClick(lead);
+                          }}
+                          disabled={deletingId === lead.id}
+                          className={cn(
+                            "inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-rose-950/30 dark:hover:text-rose-400",
+                            deletingId === lead.id &&
+                              "cursor-not-allowed opacity-50",
+                          )}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               );

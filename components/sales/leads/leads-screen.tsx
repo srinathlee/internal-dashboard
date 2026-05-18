@@ -69,6 +69,9 @@ export function LeadsScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [newLeadOpen, setNewLeadOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const canDeleteLeads = auth.user?.role === "super_admin";
 
   const filtered = useMemo(() => {
     // Server-side search/stage already applied; this just guards against any
@@ -129,6 +132,38 @@ export function LeadsScreen() {
     setEditOpen(open);
     if (!open) {
       window.setTimeout(() => setEditingId(null), 200);
+    }
+  };
+
+  const handleDeleteClick = async (lead: Lead) => {
+    if (!canDeleteLeads) return;
+    const confirmed = window.confirm(
+      `Delete lead "${lead.clinicName}"? This permanently removes the lead and its history. This action cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(lead.id);
+    try {
+      await mutations.delete(lead.id);
+      // Optimistically drop the row so the UI reacts immediately, then
+      // refresh from the server so totals/pagination stay accurate.
+      setLeads((prev) => prev.filter((l) => l.id !== lead.id));
+      if (selectedId === lead.id) {
+        setSheetOpen(false);
+        setSelectedId(null);
+      }
+      if (editingId === lead.id) {
+        setEditOpen(false);
+        setEditingId(null);
+      }
+      toast.success(`"${lead.clinicName}" deleted`);
+      void leadsQuery.refetch();
+    } catch (err) {
+      toast.error("Couldn't delete lead", {
+        description: errorMessage(err),
+      });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -321,6 +356,8 @@ export function LeadsScreen() {
           selectedId={selectedId}
           onRowClick={handleRowClick}
           onEditClick={handleEditClick}
+          onDeleteClick={canDeleteLeads ? handleDeleteClick : undefined}
+          deletingId={deletingId}
         />
       )}
 

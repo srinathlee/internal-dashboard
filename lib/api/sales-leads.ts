@@ -122,8 +122,13 @@ export function setLeadNextAction(
   });
 }
 
+/**
+ * Hard-delete a sales lead. Super-admin-only endpoint — the legacy
+ * `/api/v1/sales/leads/:id` DELETE was sales-rep-scoped; backend has since
+ * moved hard delete behind the super-admin namespace.
+ */
 export function deleteLead(id: string): Promise<void> {
-  return apiRequest<void>(`/api/v1/sales/leads/${id}`, {
+  return apiRequest<void>(`/api/v1/super-admin/sales-leads/${id}`, {
     method: "DELETE",
   });
 }
