@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Bell,
@@ -18,6 +18,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -34,10 +35,33 @@ import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
 import { isSalesMember } from "@/lib/access";
 import { cn } from "@/lib/utils";
+import { errorMessage } from "@/lib/hooks/use-async";
+import {
+  useFollowUpMutations,
+  useFollowUpsCalendar,
+  useFollowUpsList,
+  useUpcomingFollowUps,
+} from "@/lib/hooks/use-follow-ups";
+import {
+  useNotificationCount,
+  useNotificationMutations,
+  useNotifications,
+} from "@/lib/hooks/use-notifications";
+import type {
+  ApiFollowUp,
+  ApiFollowUpStatus,
+  ApiFollowUpType,
+  CalendarFollowUp,
+} from "@/lib/api/sales-follow-ups";
+import type { ApiNotification } from "@/lib/api/sales-notifications";
 
 // =================================================================
-// Types — mirror the API shape we'll ask the backend for.
+// UI ⇄ API adapters
 // =================================================================
+//
+// The API uses uppercase enums; the UI keeps lowercase identifiers so
+// existing styling lookups (TYPE_META / STATUS_META) keep working without
+// a sweeping rename.
 
 type FollowUpType = "call" | "meeting" | "visit" | "email" | "other";
 type FollowUpStatus = "pending" | "done" | "missed";
@@ -46,50 +70,95 @@ type Filter = "all" | "pending" | "done" | "missed";
 interface FollowUp {
   id: string;
   type: FollowUpType;
+  /** Mirrors the API status for round-tripping (mutations need it). */
+  apiStatus: ApiFollowUpStatus;
   title: string;
-  /** Hospital / clinic / contact location, shown as the secondary line. */
+  /** Secondary line — description from the API, "—" when empty. */
   location: string;
-  /** Optional short note shown in the Today section. */
   note?: string;
-  /** ISO-8601 scheduled timestamp. */
   scheduledAt: string;
   status: FollowUpStatus;
 }
 
-// =================================================================
-// Placeholder data — replace with `useFollowUps()` once the backend
-// endpoint lands. See FOLLOW_UPS_API.md for the spec.
-// =================================================================
+function apiTypeToUi(t: ApiFollowUpType): FollowUpType {
+  switch (t) {
+    case "CALL":
+      return "call";
+    case "MEETING":
+      return "meeting";
+    case "VISIT":
+      return "visit";
+    case "EMAIL":
+      return "email";
+    default:
+      return "other";
+  }
+}
+
+function uiTypeToApi(t: FollowUpType): ApiFollowUpType {
+  switch (t) {
+    case "call":
+      return "CALL";
+    case "meeting":
+      return "MEETING";
+    case "visit":
+      return "VISIT";
+    case "email":
+      return "EMAIL";
+    default:
+      return "OTHER";
+  }
+}
 
 /**
- * Today is 2026-05-18 (Monday). These mock entries are arranged around
- * that anchor so the calendar, "Today", "Upcoming next 7 days", and the
- * overdue banner all light up meaningfully.
+ * COMPLETED → "done". PENDING → "pending". Everything else (CANCELLED,
+ * MISSED) collapses to "missed" — the design only has three status pills,
+ * and a rep-cancelled item reads the same as a server-marked-missed one in
+ * the All table filter.
  */
-const MOCK_FOLLOW_UPS: FollowUp[] = [
-  // Overdue (pending + past) → drives the red banner
-  { id: "fu-101", type: "call",    title: "Call Dr. Mehta",          location: "Apollo Clinic",     scheduledAt: "2026-05-14T10:00:00", status: "pending" },
-  { id: "fu-102", type: "email",   title: "Send quote to Manipal",   location: "Manipal Hospital",  scheduledAt: "2026-05-15T15:00:00", status: "pending" },
+function apiStatusToUi(s: ApiFollowUpStatus): FollowUpStatus {
+  if (s === "COMPLETED") return "done";
+  if (s === "PENDING") return "pending";
+  return "missed";
+}
 
-  // Today (2026-05-18)
-  { id: "fu-001", type: "call",    title: "Call Dr. Sharma",         location: "Apollo Clinic",     note: "Follow up on lab equipment quote", scheduledAt: "2026-05-18T09:00:00", status: "pending" },
-  { id: "fu-002", type: "meeting", title: "Meeting with Fortis team", location: "Fortis Hospital",  note: "Discuss renewal and new branch setup", scheduledAt: "2026-05-18T14:00:00", status: "pending" },
+function uiStatusFilterToApi(f: Filter): ApiFollowUpStatus[] | undefined {
+  switch (f) {
+    case "pending":
+      return ["PENDING"];
+    case "done":
+      return ["COMPLETED"];
+    case "missed":
+      return ["MISSED", "CANCELLED"];
+    default:
+      return undefined;
+  }
+}
 
-  // Upcoming next 7 days
-  { id: "fu-003", type: "visit",   title: "Visit Max Healthcare",     location: "Max Healthcare",    scheduledAt: "2026-05-19T10:30:00", status: "pending" },
-  { id: "fu-004", type: "email",   title: "Email proposal to Medanta", location: "Medanta",          scheduledAt: "2026-05-19T16:00:00", status: "pending" },
-  { id: "fu-005", type: "call",    title: "Call Dr. Patel",           location: "City Hospital",     scheduledAt: "2026-05-20T11:00:00", status: "pending" },
-  { id: "fu-006", type: "meeting", title: "Meeting with procurement", location: "AIIMS",             scheduledAt: "2026-05-21T09:30:00", status: "pending" },
-  { id: "fu-007", type: "call",    title: "Follow up with Dr. Gupta", location: "Narayana Health",   scheduledAt: "2026-05-22T15:00:00", status: "pending" },
-  { id: "fu-008", type: "email",   title: "Email contract to Yashoda", location: "Yashoda Hospital", scheduledAt: "2026-05-24T10:00:00", status: "pending" },
+function adaptFollowUp(api: ApiFollowUp): FollowUp {
+  return {
+    id: api.id,
+    type: apiTypeToUi(api.type),
+    apiStatus: api.status,
+    title: api.title,
+    location: api.description?.trim() ? api.description : "—",
+    note: api.description?.trim() ? api.description : undefined,
+    scheduledAt: api.follow_up_at,
+    status: apiStatusToUi(api.status),
+  };
+}
 
-  // Past completed (history, drives the "Done" filter)
-  { id: "fu-201", type: "call",    title: "Call Dr. Reddy",           location: "KIMS",              scheduledAt: "2026-05-12T11:00:00", status: "done" },
-  { id: "fu-202", type: "meeting", title: "Meeting with billing",     location: "Apollo Clinic",     scheduledAt: "2026-05-10T15:30:00", status: "done" },
-
-  // Past missed (drives the "Missed" filter)
-  { id: "fu-301", type: "visit",   title: "Visit Care Hospitals",     location: "Care Hospitals",    scheduledAt: "2026-05-09T12:00:00", status: "missed" },
-];
+function adaptCalendarFollowUp(api: CalendarFollowUp): FollowUp {
+  return {
+    id: api.id,
+    type: apiTypeToUi(api.type),
+    apiStatus: api.status,
+    title: api.title,
+    location: "—",
+    scheduledAt: api.follow_up_at,
+    status: apiStatusToUi(api.status),
+  };
+}
 
 // =================================================================
 // Helpers
@@ -141,6 +210,14 @@ function formatRelativeDate(iso: string, today: Date): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/** Local `YYYY-MM-DD` — matches the spec's date param format. */
+function toYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 // =================================================================
 // Screen
 // =================================================================
@@ -148,30 +225,135 @@ function formatRelativeDate(iso: string, today: Date): string {
 export function FollowUpsScreen() {
   const auth = useAuth();
 
-  // Fixing "now" once per render keeps every derived list (today / upcoming
-  // / overdue / calendar) referring to the same instant — otherwise an
-  // entry could appear in two buckets on a millisecond boundary.
+  // Pinning "now" per render keeps every derived list referring to the same
+  // instant — otherwise an entry could land in two buckets at a ms boundary.
   const now = useMemo(() => new Date(), []);
 
   const [calendarMonth, setCalendarMonth] = useState(
     () => new Date(now.getFullYear(), now.getMonth(), 1),
   );
+  // Day the right-hand card is currently focused on. Defaults to today.
+  // Clicking a date in the calendar updates this and triggers a per-day
+  // fetch via `useFollowUpsList({ date })` (spec workflow #2).
+  const [selectedDate, setSelectedDate] = useState<Date>(() => now);
   const [filter, setFilter] = useState<Filter>("all");
-  const [items, setItems] = useState<FollowUp[]>(MOCK_FOLLOW_UPS);
   const [createOpen, setCreateOpen] = useState(false);
-  // Notification IDs the rep has acknowledged. Initialized with the last
-  // entry so the bell badge reads "3 unread" out of 4 like the design.
-  const [readNotifIds, setReadNotifIds] = useState<Set<string>>(
-    () => new Set(["fu-003"]),
+
+  const selectedYmd = toYmd(selectedDate);
+  const isSelectedToday = isSameDay(selectedDate, now);
+
+  // ---------- Data ----------
+  const calendarQuery = useFollowUpsCalendar(
+    calendarMonth.getFullYear(),
+    calendarMonth.getMonth() + 1,
+  );
+  const upcomingQuery = useUpcomingFollowUps(7);
+  const listQuery = useFollowUpsList({
+    status: uiStatusFilterToApi(filter),
+    limit: 200,
+  });
+  // Per-day items for the right-hand card. Refetches whenever the user
+  // clicks a different date in the calendar.
+  const selectedDayQuery = useFollowUpsList({
+    date: selectedYmd,
+    limit: 200,
+  });
+
+  const mutations = useFollowUpMutations();
+
+  // Calendar dots — flatten the per-day payload into a FollowUp[] shaped
+  // for the existing CalendarCard component (which only reads scheduledAt +
+  // status to decide which days light up).
+  const calendarItems = useMemo<FollowUp[]>(() => {
+    const map = calendarQuery.data?.calendar;
+    if (!map) return [];
+    const out: FollowUp[] = [];
+    for (const list of Object.values(map)) {
+      for (const f of list) out.push(adaptCalendarFollowUp(f));
+    }
+    return out;
+  }, [calendarQuery.data]);
+
+  // Selected-day items (all statuses, chronological by time of day).
+  const selectedDayItems = useMemo<FollowUp[]>(
+    () =>
+      (selectedDayQuery.data?.follow_ups ?? [])
+        .map(adaptFollowUp)
+        .sort(
+          (a, b) =>
+            +new Date(a.scheduledAt) - +new Date(b.scheduledAt),
+        ),
+    [selectedDayQuery.data],
   );
 
-  const buckets = useMemo(() => bucketize(items, now), [items, now]);
-
-  const notifications = useMemo(
-    () => buildNotifications(items, now, readNotifIds),
-    [items, now, readNotifIds],
+  // Upcoming card — pending items in the next 7 days, excluding today since
+  // today already has its own card. Drives the "Next 7 days" panel.
+  const upcomingTabItems = useMemo<FollowUp[]>(
+    () =>
+      (upcomingQuery.data?.upcoming ?? [])
+        .map(adaptFollowUp)
+        .filter((f) => !isSameDay(new Date(f.scheduledAt), now))
+        .sort(
+          (a, b) =>
+            +new Date(a.scheduledAt) - +new Date(b.scheduledAt),
+        ),
+    [upcomingQuery.data, now],
   );
-  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const overdueCount = upcomingQuery.data?.overdue_count ?? 0;
+  const allItems = useMemo<FollowUp[]>(
+    () => listQuery.data?.follow_ups.map(adaptFollowUp) ?? [],
+    [listQuery.data],
+  );
+
+  // After any mutation, refresh whichever caches are visibly affected. Each
+  // hook tracks its own loading state, so individual cards keep rendering
+  // their last good data while the background refetch is in flight.
+  const refreshAll = useCallback(() => {
+    void calendarQuery.refetch();
+    void upcomingQuery.refetch();
+    void listQuery.refetch();
+    void selectedDayQuery.refetch();
+  }, [calendarQuery, upcomingQuery, listQuery, selectedDayQuery]);
+
+  // ---------- Mutations ----------
+  const markDone = async (id: string) => {
+    try {
+      await mutations.complete(id);
+      refreshAll();
+    } catch (err) {
+      toast.error("Couldn't mark complete", { description: errorMessage(err) });
+    }
+  };
+
+  /** UI "X" dismiss. Maps to CANCELLED on the wire (rep-driven, not server-detected). */
+  const markMissed = async (id: string) => {
+    try {
+      await mutations.update(id, { status: "CANCELLED" });
+      refreshAll();
+    } catch (err) {
+      toast.error("Couldn't dismiss follow-up", {
+        description: errorMessage(err),
+      });
+    }
+  };
+
+  const createFollowUp = async (draft: NewFollowUpDraft) => {
+    try {
+      await mutations.create({
+        title: draft.title,
+        description: draft.description || undefined,
+        follow_up_at: new Date(draft.scheduledAt).toISOString(),
+        type: uiTypeToApi(draft.type),
+      });
+      toast.success("Follow-up scheduled");
+      refreshAll();
+    } catch (err) {
+      toast.error("Couldn't create follow-up", {
+        description: errorMessage(err),
+      });
+    }
+  };
 
   if (!auth.isLoaded) {
     return (
@@ -190,32 +372,6 @@ export function FollowUpsScreen() {
     );
   }
 
-  // Optimistic-only handlers; the API mutations will replace them once
-  // the backend lands. Each one is keyed off the follow-up id so the
-  // backend can wire them straight to a status-update endpoint.
-  const markDone = (id: string) =>
-    setItems((arr) => arr.map((f) => (f.id === id ? { ...f, status: "done" } : f)));
-  const markMissed = (id: string) =>
-    setItems((arr) => arr.map((f) => (f.id === id ? { ...f, status: "missed" } : f)));
-
-  const createFollowUp = (draft: NewFollowUpDraft) => {
-    setItems((arr) => [
-      ...arr,
-      {
-        id: `fu-${Date.now()}`,
-        type: draft.type,
-        title: draft.title,
-        location: draft.description || "—",
-        note: draft.description || undefined,
-        scheduledAt: draft.scheduledAt,
-        status: "pending",
-      },
-    ]);
-  };
-
-  const markAllNotificationsRead = () =>
-    setReadNotifIds(new Set(notifications.map((n) => n.id.replace("notif-", ""))));
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -223,11 +379,7 @@ export function FollowUpsScreen() {
         description="Schedule and track your calls, meetings, and visits."
         actions={
           <>
-            <NotificationsPopover
-              notifications={notifications}
-              unreadCount={unreadCount}
-              onMarkAllRead={markAllNotificationsRead}
-            />
+            <NotificationsPopover />
             <Button
               onClick={() => setCreateOpen(true)}
               className="bg-violet-600 hover:bg-violet-500"
@@ -242,28 +394,45 @@ export function FollowUpsScreen() {
       <NewFollowUpDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        defaultDate={now}
+        defaultDate={selectedDate}
         onCreate={createFollowUp}
       />
 
-      {buckets.overdue.length > 0 ? (
-        <OverdueBanner count={buckets.overdue.length} />
-      ) : null}
+      {overdueCount > 0 ? <OverdueBanner count={overdueCount} /> : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <CalendarCard
           month={calendarMonth}
-          onPrev={() =>
-            setCalendarMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))
-          }
-          onNext={() =>
-            setCalendarMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))
-          }
+          onPrev={() => {
+            setCalendarMonth(
+              (m) => new Date(m.getFullYear(), m.getMonth() - 1, 1),
+            );
+          }}
+          onNext={() => {
+            setCalendarMonth(
+              (m) => new Date(m.getFullYear(), m.getMonth() + 1, 1),
+            );
+          }}
           today={now}
-          items={items}
+          items={calendarItems}
+          selectedDate={selectedDate}
+          onSelectDate={(d) => {
+            setSelectedDate(d);
+            // Picking a day in a different month should also pull that
+            // month into view — otherwise the highlight would vanish.
+            if (
+              d.getFullYear() !== calendarMonth.getFullYear() ||
+              d.getMonth() !== calendarMonth.getMonth()
+            ) {
+              setCalendarMonth(new Date(d.getFullYear(), d.getMonth(), 1));
+            }
+          }}
         />
-        <TodayCard
-          items={buckets.today}
+        <SelectedDayCard
+          items={selectedDayItems}
+          selectedDate={selectedDate}
+          isToday={isSelectedToday}
+          isLoading={selectedDayQuery.isLoading}
           onDone={markDone}
           onMissed={markMissed}
           onAdd={() => setCreateOpen(true)}
@@ -271,13 +440,13 @@ export function FollowUpsScreen() {
       </div>
 
       <UpcomingCard
-        items={buckets.upcoming}
+        items={upcomingTabItems}
         today={now}
         onDone={markDone}
       />
 
       <AllFollowUpsCard
-        items={items}
+        items={allItems}
         today={now}
         filter={filter}
         onFilterChange={setFilter}
@@ -316,12 +485,16 @@ function CalendarCard({
   onNext,
   today,
   items,
+  selectedDate,
+  onSelectDate,
 }: {
   month: Date;
   onPrev: () => void;
   onNext: () => void;
   today: Date;
   items: FollowUp[];
+  selectedDate: Date;
+  onSelectDate: (d: Date) => void;
 }) {
   const monthLabel = month.toLocaleDateString("en-US", {
     month: "long",
@@ -390,19 +563,26 @@ function CalendarCard({
           }
           const cellDate = new Date(month.getFullYear(), month.getMonth(), day);
           const isToday = isSameDay(cellDate, today);
+          const isSelected = isSameDay(cellDate, selectedDate);
           const count = counts.get(day) ?? 0;
           const hasItems = count > 0;
           return (
             <button
               key={day}
               type="button"
+              onClick={() => onSelectDate(cellDate)}
+              aria-pressed={isSelected}
               className={cn(
                 "mx-auto grid h-7 w-7 place-items-center rounded-full text-sm tabular-nums transition-colors",
+                // Today stays solid violet. Selected (but-not-today) gets a
+                // ring so both highlights can coexist on the same cell.
                 isToday
                   ? "bg-violet-500 font-semibold text-white"
                   : hasItems
                     ? "font-medium text-violet-600 hover:bg-violet-50 dark:text-violet-400 dark:hover:bg-violet-950/40"
                     : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-900",
+                isSelected && !isToday &&
+                  "ring-2 ring-violet-500 ring-offset-1 ring-offset-white dark:ring-offset-zinc-950",
               )}
               aria-label={
                 hasItems
@@ -420,20 +600,40 @@ function CalendarCard({
 }
 
 // =================================================================
-// Today
+// Selected-day card
 // =================================================================
 
-function TodayCard({
+function SelectedDayCard({
   items,
+  selectedDate,
+  isToday,
+  isLoading,
   onDone,
   onMissed,
   onAdd,
 }: {
   items: FollowUp[];
+  selectedDate: Date;
+  isToday: boolean;
+  isLoading: boolean;
   onDone: (id: string) => void;
   onMissed: (id: string) => void;
   onAdd: () => void;
 }) {
+  const title = isToday
+    ? "Today"
+    : selectedDate.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      });
+  const emptyMsg = isToday
+    ? "Nothing scheduled for today."
+    : `Nothing scheduled for ${selectedDate.toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+      })}.`;
+
   return (
     <Card className="overflow-hidden p-5">
       <div className="flex items-start justify-between gap-3">
@@ -442,7 +642,7 @@ function TodayCard({
             <CalendarIcon className="h-4 w-4" aria-hidden />
           </span>
           <div className="flex items-baseline gap-2">
-            <span className="text-sm font-semibold">Today</span>
+            <span className="text-sm font-semibold">{title}</span>
             <span className="text-xs text-zinc-500">
               {items.length} follow-up{items.length === 1 ? "" : "s"}
             </span>
@@ -459,9 +659,11 @@ function TodayCard({
       </div>
 
       <div className="mt-4 space-y-3">
-        {items.length === 0 ? (
+        {isLoading && items.length === 0 ? (
+          <div className="py-8 text-center text-sm text-zinc-500">Loading…</div>
+        ) : items.length === 0 ? (
           <div className="py-8 text-center text-sm text-zinc-500">
-            Nothing scheduled for today.
+            {emptyMsg}
           </div>
         ) : (
           items.map((f) => (
@@ -762,86 +964,31 @@ function AllRow({ item, today }: { item: FollowUp; today: Date }) {
 // Notifications
 // =================================================================
 
-interface Notification {
-  /** "notif-<followUpId>" so we can map back to the source follow-up. */
-  id: string;
-  type: FollowUpType;
-  title: string;
-  body: string;
-  read: boolean;
-}
-
 /**
- * Derive notifications from the follow-up list. Surfaces:
- *   - Pending follow-ups happening within the next few hours today
- *   - Pending follow-ups for tomorrow
- *   - Pending follow-ups that slipped past their scheduled time yesterday
- *     (rendered as "Missed:" — turns into an actual `missed` status only
- *     when the rep acts on it, so we still drive this off `pending` items)
+ * Bell + dropdown, wired to the real notifications API.
+ *
+ * - `useNotificationCount` polls every 60s and on tab focus to drive the badge.
+ * - The list endpoint is only hit when the dropdown opens, so the screen
+ *   doesn't pay for it on every render.
+ * - Clicking an unread row PATCHes it read and decrements the badge optimistically.
  */
-function buildNotifications(
-  items: FollowUp[],
-  now: Date,
-  readIds: Set<string>,
-): Notification[] {
-  const notifs: Notification[] = [];
-  for (const f of items) {
-    if (f.status !== "pending") continue;
-    const when = new Date(f.scheduledAt);
-    const dayDiff = diffInDays(now, when);
-    const typeLabel = TYPE_META[f.type].label.toLowerCase();
-    const dateStr = when.toLocaleDateString("en-GB"); // DD/MM/YYYY
-    const timeStr = formatTime(f.scheduledAt);
-
-    if (dayDiff === 0 && when.getTime() > now.getTime()) {
-      const hours = Math.max(1, Math.round((when.getTime() - now.getTime()) / 3_600_000));
-      notifs.push({
-        id: `notif-${f.id}`,
-        type: f.type,
-        title: `Reminder: ${f.title}`,
-        body: `You have a ${typeLabel} follow-up scheduled in ${hours} hour${hours === 1 ? "" : "s"}\n(${dateStr}, ${timeStr})`,
-        read: readIds.has(f.id),
-      });
-    } else if (dayDiff === 1) {
-      notifs.push({
-        id: `notif-${f.id}`,
-        type: f.type,
-        title: `Reminder: ${f.title}`,
-        body: `You have a ${typeLabel} scheduled tomorrow at ${timeStr}`,
-        read: readIds.has(f.id),
-      });
-    } else if (dayDiff === -1) {
-      notifs.push({
-        id: `notif-${f.id}`,
-        type: f.type,
-        title: `Missed: ${f.title}`,
-        body: `You missed a scheduled ${typeLabel} yesterday`,
-        read: readIds.has(f.id),
-      });
-    }
-  }
-  // Unread first, then by recency of the source follow-up (most-imminent first).
-  return notifs.sort((a, b) => {
-    if (a.read !== b.read) return a.read ? 1 : -1;
-    return 0;
-  });
-}
-
-function NotificationsPopover({
-  notifications,
-  unreadCount,
-  onMarkAllRead,
-}: {
-  notifications: Notification[];
-  unreadCount: number;
-  onMarkAllRead: () => void;
-}) {
+function NotificationsPopover() {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Close on outside-click / Escape. Radix would handle this for us via the
-  // Popover primitive, but the project doesn't currently install it — this
-  // is the minimum needed to feel native.
+  const countQuery = useNotificationCount();
+  const listQuery = useNotifications({ limit: 20 });
+  const mutations = useNotificationMutations();
+
+  // Re-fetch the list whenever the dropdown opens so the rep always sees
+  // fresh entries — the 60s count poll doesn't refetch the bodies.
+  useEffect(() => {
+    if (open) void listQuery.refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Close on outside-click / Escape. The project doesn't ship the Radix
+  // Popover primitive, so this is the minimum to feel native.
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: MouseEvent) => {
@@ -859,6 +1006,62 @@ function NotificationsPopover({
     };
   }, [open]);
 
+  const notifications = listQuery.data?.notifications ?? [];
+  const unreadCount = countQuery.count;
+
+  const handleRowClick = async (n: ApiNotification) => {
+    if (n.is_read) return;
+    // Optimistic: update count + cached list so the badge moves now.
+    countQuery.setCount(Math.max(0, unreadCount - 1));
+    listQuery.setData(
+      listQuery.data
+        ? {
+            ...listQuery.data,
+            unread_count: Math.max(0, listQuery.data.unread_count - 1),
+            notifications: listQuery.data.notifications.map((x) =>
+              x.id === n.id
+                ? { ...x, is_read: true, read_at: new Date().toISOString() }
+                : x,
+            ),
+          }
+        : null,
+    );
+    try {
+      await mutations.markRead(n.id);
+    } catch (err) {
+      toast.error("Couldn't mark read", { description: errorMessage(err) });
+      void countQuery.refetch();
+      void listQuery.refetch();
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    if (unreadCount === 0) return;
+    countQuery.setCount(0);
+    listQuery.setData(
+      listQuery.data
+        ? {
+            ...listQuery.data,
+            unread_count: 0,
+            notifications: listQuery.data.notifications.map((x) => ({
+              ...x,
+              is_read: true,
+              read_at: x.read_at ?? new Date().toISOString(),
+            })),
+          }
+        : null,
+    );
+    try {
+      await mutations.markAllRead();
+    } catch (err) {
+      toast.error("Couldn't mark all read", {
+        description: errorMessage(err),
+      });
+      void countQuery.refetch();
+      void listQuery.refetch();
+    }
+  };
+
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -874,7 +1077,7 @@ function NotificationsPopover({
             aria-hidden
             className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-violet-500 px-1 text-[10px] font-semibold text-white"
           >
-            {unreadCount}
+            {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         ) : null}
       </button>
@@ -889,7 +1092,7 @@ function NotificationsPopover({
             <h3 className="text-sm font-semibold">Notifications</h3>
             <button
               type="button"
-              onClick={onMarkAllRead}
+              onClick={handleMarkAllRead}
               disabled={unreadCount === 0}
               className="text-xs font-semibold text-violet-600 transition-colors hover:text-violet-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-violet-400 dark:hover:text-violet-300"
             >
@@ -898,22 +1101,35 @@ function NotificationsPopover({
           </div>
 
           <div className="max-h-[420px] overflow-y-auto">
-            {notifications.length === 0 ? (
+            {listQuery.isLoading && !listQuery.data ? (
               <div className="px-4 py-10 text-center text-sm text-zinc-500">
-                You're all caught up.
+                Loading…
+              </div>
+            ) : listQuery.error ? (
+              <div className="px-4 py-10 text-center text-sm text-rose-500">
+                {errorMessage(listQuery.error)}
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="px-4 py-10 text-center text-sm text-zinc-500">
+                You&apos;re all caught up.
               </div>
             ) : (
               notifications.map((n) => {
-                const meta = TYPE_META[n.type];
+                const uiType: FollowUpType = n.meta?.follow_up_type
+                  ? apiTypeToUi(n.meta.follow_up_type)
+                  : "other";
+                const meta = TYPE_META[uiType];
                 const Icon = meta.icon;
                 return (
-                  <div
+                  <button
                     key={n.id}
+                    type="button"
+                    onClick={() => void handleRowClick(n)}
                     className={cn(
-                      "flex items-start gap-3 px-4 py-3 transition-colors",
-                      !n.read &&
+                      "flex w-full items-start gap-3 px-4 py-3 text-left transition-colors",
+                      !n.is_read &&
                         "bg-violet-50/40 hover:bg-violet-50/60 dark:bg-violet-950/20 dark:hover:bg-violet-950/30",
-                      n.read && "hover:bg-zinc-50 dark:hover:bg-zinc-900/60",
+                      n.is_read && "hover:bg-zinc-50 dark:hover:bg-zinc-900/60",
                     )}
                   >
                     <span
@@ -933,13 +1149,13 @@ function NotificationsPopover({
                         {n.body}
                       </p>
                     </div>
-                    {!n.read ? (
+                    {!n.is_read ? (
                       <span
                         aria-label="Unread"
                         className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500"
                       />
                     ) : null}
-                  </div>
+                  </button>
                 );
               })
             )}
@@ -963,13 +1179,6 @@ interface NewFollowUpDraft {
 
 const TYPE_PICKER: FollowUpType[] = ["call", "meeting", "visit", "email", "other"];
 
-function toDateInputValue(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 function NewFollowUpDialog({
   open,
   onOpenChange,
@@ -983,7 +1192,7 @@ function NewFollowUpDialog({
 }) {
   const [title, setTitle] = useState("");
   const [type, setType] = useState<FollowUpType>("call");
-  const [date, setDate] = useState(() => toDateInputValue(defaultDate));
+  const [date, setDate] = useState(() => toYmd(defaultDate));
   const [time, setTime] = useState("10:00");
   const [description, setDescription] = useState("");
 
@@ -993,7 +1202,7 @@ function NewFollowUpDialog({
     if (!open) return;
     setTitle("");
     setType("call");
-    setDate(toDateInputValue(defaultDate));
+    setDate(toYmd(defaultDate));
     setTime("10:00");
     setDescription("");
   }, [open, defaultDate]);
@@ -1140,37 +1349,3 @@ function NewFollowUpDialog({
   );
 }
 
-// =================================================================
-// Bucketing
-// =================================================================
-
-function bucketize(items: FollowUp[], now: Date) {
-  const today: FollowUp[] = [];
-  const upcoming: FollowUp[] = [];
-  const overdue: FollowUp[] = [];
-
-  for (const f of items) {
-    const when = new Date(f.scheduledAt);
-    const dayDiff = diffInDays(now, when);
-    if (f.status === "pending" && when.getTime() < now.getTime() && dayDiff < 0) {
-      overdue.push(f);
-      continue;
-    }
-    if (isSameDay(when, now)) {
-      today.push(f);
-      continue;
-    }
-    if (dayDiff > 0 && dayDiff <= 7) {
-      upcoming.push(f);
-    }
-  }
-
-  // Stable per-bucket ordering: chronological for the forward-looking ones,
-  // oldest-overdue-first for the banner-driving list so the most-stale item
-  // is what the rep sees first if we ever surface them inline.
-  today.sort((a, b) => +new Date(a.scheduledAt) - +new Date(b.scheduledAt));
-  upcoming.sort((a, b) => +new Date(a.scheduledAt) - +new Date(b.scheduledAt));
-  overdue.sort((a, b) => +new Date(a.scheduledAt) - +new Date(b.scheduledAt));
-
-  return { today, upcoming, overdue };
-}

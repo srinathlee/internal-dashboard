@@ -16,3 +16,5 @@ export * as revenueTargets from "./sales-revenue-targets";
 export * as brochure from "./sales-brochure";
 export * as audit from "./sales-audit";
 export * as scorecard from "./sales-scorecard";
+export * as followUps from "./sales-follow-ups";
+export * as notifications from "./sales-notifications";
