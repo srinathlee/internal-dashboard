@@ -15,7 +15,14 @@
  * /api/v1/sales/*. Don't unify them.
  */
 
-import { apiData, apiRequest, setAuthToken } from "./client";
+import {
+  apiData,
+  apiRequest,
+  registerTokenRefresh,
+  setAuthToken,
+  setRefreshToken,
+  getRefreshToken,
+} from "./client";
 import type { ApiUser, ApiRole } from "./types";
 
 export interface LoginResponse {
@@ -112,6 +119,11 @@ export async function login(
   }
 
   setAuthToken(token);
+  // Refresh token is optional — some deployments don't issue one. When
+  // present, it lets the client survive access-token expiry without bouncing
+  // the user back to /login.
+  const refreshToken = extractRefreshTokenFromObject(envelope);
+  if (refreshToken) setRefreshToken(refreshToken);
   persistMe(user);
   return user;
 }
@@ -156,6 +168,17 @@ function extractTokenFromObject(obj: unknown): string | null {
 }
 
 const JWT_PATTERN = /^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+function extractRefreshTokenFromObject(obj: unknown): string | null {
+  if (!obj || typeof obj !== "object") return null;
+  const KNOWN = ["refreshToken", "refresh_token", "refresh"];
+  const o = obj as Record<string, unknown>;
+  for (const k of KNOWN) {
+    const v = o[k];
+    if (typeof v === "string" && v.length > 10) return v;
+  }
+  return null;
+}
 
 /**
  * Look at document.cookie for a JWT-shaped value. This catches deployments
@@ -212,8 +235,50 @@ export async function fetchMe(): Promise<AuthMe> {
 
 export function logout(): void {
   setAuthToken(null);
+  setRefreshToken(null);
   persistMe(null);
 }
+
+/**
+ * POST /api/auth/refresh — exchange the stored refresh token for a fresh
+ * access token (and a rotated refresh token, per the server's response).
+ *
+ * Wired into the api client via `registerTokenRefresh` at module load, so
+ * any 401 from a protected endpoint will silently trigger this once before
+ * the error bubbles to the caller. Returns the new access token, or null
+ * if there's no refresh token to use or the refresh itself failed — in
+ * which case we clear the local session so the next render redirects to
+ * /login instead of looping on more 401s.
+ */
+export async function refreshAccessToken(): Promise<string | null> {
+  const refresh = getRefreshToken();
+  if (!refresh) return null;
+
+  try {
+    const body = await apiRequest<unknown>("/api/auth/refresh", {
+      method: "POST",
+      body: { refreshToken: refresh },
+      skipAuth: true,
+      skipRefresh: true,
+    });
+    const envelope = unwrapData(body);
+    const newAccess = extractTokenFromObject(envelope);
+    if (!newAccess) {
+      logout();
+      return null;
+    }
+    setAuthToken(newAccess);
+    const newRefresh = extractRefreshTokenFromObject(envelope);
+    if (newRefresh) setRefreshToken(newRefresh);
+    return newAccess;
+  } catch {
+    // Refresh token is expired/invalid — burn the local session.
+    logout();
+    return null;
+  }
+}
+
+registerTokenRefresh(refreshAccessToken);
 
 /**
  * Best-effort decode of a JWT to read its role + sub claim.

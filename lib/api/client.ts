@@ -10,6 +10,7 @@
 const DEFAULT_BASE_URL = "https://server.nyraai.io";
 
 export const TOKEN_STORAGE_KEY = "nyra-dashboard:auth-token";
+export const REFRESH_TOKEN_STORAGE_KEY = "nyra-dashboard:refresh-token";
 
 export class ApiError extends Error {
   constructor(
@@ -46,6 +47,48 @@ export function getAuthToken(): string | null {
   return readToken();
 }
 
+export function setRefreshToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (token) window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, token);
+    else window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+// Refresh hook registered by auth.ts. Kept as a callback so client.ts stays
+// agnostic of the refresh endpoint shape. Returns the new access token, or
+// null if the refresh failed (caller will surface the original 401).
+type RefreshFn = () => Promise<string | null>;
+let refreshFn: RefreshFn | null = null;
+let inflightRefresh: Promise<string | null> | null = null;
+
+export function registerTokenRefresh(fn: RefreshFn | null): void {
+  refreshFn = fn;
+}
+
+// Dedupe concurrent 401s — if five in-flight requests fail at the same time,
+// we should only hit /auth/refresh once and have them all wait on that.
+async function refreshOnce(): Promise<string | null> {
+  if (!refreshFn) return null;
+  if (!inflightRefresh) {
+    inflightRefresh = refreshFn().finally(() => {
+      inflightRefresh = null;
+    });
+  }
+  return inflightRefresh;
+}
+
 export function getApiBaseUrl(): string {
   const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL;
   return (fromEnv && fromEnv.trim()) || DEFAULT_BASE_URL;
@@ -74,6 +117,12 @@ export interface RequestOptions {
    * but anonymous access succeeds.
    */
   skipAuth?: boolean;
+  /**
+   * Don't attempt to refresh the access token on a 401. Set on the refresh
+   * call itself (to avoid infinite recursion) and on the login call (where
+   * 401 means bad credentials, not an expired token).
+   */
+  skipRefresh?: boolean;
 }
 
 function buildUrl(
@@ -106,6 +155,14 @@ function buildUrl(
 export async function apiRequest<T = unknown>(
   path: string,
   opts: RequestOptions = {},
+): Promise<T> {
+  return apiRequestImpl<T>(path, opts, 0);
+}
+
+async function apiRequestImpl<T>(
+  path: string,
+  opts: RequestOptions,
+  attempt: number,
 ): Promise<T> {
   const url = buildUrl(path, opts.query);
   const token = readToken();
@@ -160,6 +217,21 @@ export async function apiRequest<T = unknown>(
   }
 
   if (!res.ok) {
+    // Access token expired: try a single refresh + retry before surfacing
+    // the 401. Skip when the caller opted out (login, refresh) or when
+    // we've already retried once this call.
+    if (
+      res.status === 401 &&
+      attempt === 0 &&
+      !opts.skipAuth &&
+      !opts.skipRefresh
+    ) {
+      const newToken = await refreshOnce();
+      if (newToken) {
+        return apiRequestImpl<T>(path, opts, 1);
+      }
+    }
+
     // If the server returned an HTML error page (e.g. a Vercel 404), the
     // raw text is useless to surface in toasts. Fall back to a generic
     // message keyed on status code instead.
