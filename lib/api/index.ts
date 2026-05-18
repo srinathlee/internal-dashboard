@@ -18,3 +18,4 @@ export * as audit from "./sales-audit";
 export * as scorecard from "./sales-scorecard";
 export * as followUps from "./sales-follow-ups";
 export * as notifications from "./sales-notifications";
+export * as myTargets from "./sales-my-targets";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Hash,
   IndianRupee,
+  Target,
   Users,
   Wallet,
   type LucideIcon,
@@ -21,108 +22,91 @@ import { isSalesMember } from "@/lib/access";
 import { getInitials } from "@/lib/format";
 import { formatCurrency } from "@/lib/format-metric";
 import { cn } from "@/lib/utils";
+import { errorMessage } from "@/lib/hooks/use-async";
+import { useMyTargets } from "@/lib/hooks/use-my-targets";
+import { ApiError } from "@/lib/api/client";
+import type {
+  MyTargetIconHint,
+  MyTargetMetric,
+  MyTargetPeriod,
+  MyTargetPeriodSnapshot,
+  MyTargetStatus,
+} from "@/lib/api/sales-my-targets";
 
-type Period = "monthly" | "quarterly" | "half_yearly" | "yearly";
-type Status = "ahead" | "on_track" | "behind" | "at_risk";
+// ---------------------------------------------------------------
+// API ↔ UI helpers
+// ---------------------------------------------------------------
 
-interface MetricRow {
-  key: string;
-  title: string;
-  subtitle: string;
-  icon: LucideIcon;
-  actual: number;
-  target: number;
-  currency?: boolean;
-}
-
-interface PeriodData {
-  daysTotal: number;
-  daysElapsed: number;
-  metrics: MetricRow[];
-}
-
-// Placeholder data — swap with a `useMyTargets(period)` hook once the
-// backend endpoint is ready. The shape mirrors what the API will return:
-// one snapshot per period with days-elapsed + per-metric actual/target.
-const MOCK_DATA: Record<Period, PeriodData> = {
-  monthly: {
-    daysTotal: 30,
-    daysElapsed: 14,
-    metrics: [
-      { key: "leads", title: "Leads", subtitle: "New leads generated", icon: Users, actual: 29, target: 30 },
-      { key: "sprints_done", title: "Sprints done", subtitle: "Sprints completed", icon: Hash, actual: 5, target: 7 },
-      { key: "sprint_amount", title: "Sprint amount", subtitle: "Revenue from sprints", icon: Wallet, actual: 11200, target: 15000, currency: true },
-      { key: "revenue", title: "Revenue", subtitle: "Total revenue closed", icon: IndianRupee, actual: 5400, target: 5000, currency: true },
-    ],
-  },
-  quarterly: {
-    daysTotal: 91,
-    daysElapsed: 44,
-    metrics: [
-      { key: "leads", title: "Leads", subtitle: "New leads generated", icon: Users, actual: 135, target: 120 },
-      { key: "sprints_done", title: "Sprints done", subtitle: "Sprints completed", icon: Hash, actual: 18, target: 20 },
-      { key: "sprint_amount", title: "Sprint amount", subtitle: "Revenue from sprints", icon: Wallet, actual: 34200, target: 45000, currency: true },
-      { key: "revenue", title: "Revenue", subtitle: "Total revenue closed", icon: IndianRupee, actual: 16400, target: 15000, currency: true },
-    ],
-  },
-  half_yearly: {
-    daysTotal: 182,
-    daysElapsed: 90,
-    metrics: [
-      { key: "leads", title: "Leads", subtitle: "New leads generated", icon: Users, actual: 229, target: 240 },
-      { key: "sprints_done", title: "Sprints done", subtitle: "Sprints completed", icon: Hash, actual: 32, target: 40 },
-      { key: "sprint_amount", title: "Sprint amount", subtitle: "Revenue from sprints", icon: Wallet, actual: 62000, target: 90000, currency: true },
-      { key: "revenue", title: "Revenue", subtitle: "Total revenue closed", icon: IndianRupee, actual: 28000, target: 30000, currency: true },
-    ],
-  },
-  yearly: {
-    daysTotal: 365,
-    daysElapsed: 168,
-    metrics: [
-      { key: "leads", title: "Leads", subtitle: "New leads generated", icon: Users, actual: 480, target: 480 },
-      { key: "sprints_done", title: "Sprints done", subtitle: "Sprints completed", icon: Hash, actual: 55, target: 80 },
-      { key: "sprint_amount", title: "Sprint amount", subtitle: "Revenue from sprints", icon: Wallet, actual: 110000, target: 180000, currency: true },
-      { key: "revenue", title: "Revenue", subtitle: "Total revenue closed", icon: IndianRupee, actual: 48000, target: 60000, currency: true },
-    ],
-  },
-};
-
-const PERIOD_TABS: { id: Period; label: string }[] = [
+const PERIOD_TABS: { id: MyTargetPeriod; label: string }[] = [
   { id: "monthly", label: "Monthly" },
   { id: "quarterly", label: "Quarterly" },
   { id: "half_yearly", label: "Half-yearly" },
   { id: "yearly", label: "Yearly" },
 ];
 
-const PERIOD_LABEL: Record<Period, string> = {
+const PERIOD_LABEL: Record<MyTargetPeriod, string> = {
   monthly: "Monthly",
   quarterly: "Quarterly",
   half_yearly: "Half-yearly",
   yearly: "Yearly",
 };
 
+const ICON_BY_HINT: Record<string, LucideIcon> = {
+  users: Users,
+  hash: Hash,
+  wallet: Wallet,
+  rupee: IndianRupee,
+  "indian-rupee": IndianRupee,
+  target: Target,
+};
+
+function iconFor(hint: MyTargetIconHint): LucideIcon {
+  return ICON_BY_HINT[hint] ?? Target;
+}
+
+/**
+ * Currency `actual` / `target` come back in **paise**; count metrics are
+ * plain integers. This handles both cases consistently.
+ */
+function formatMetricValue(metric: MyTargetMetric, n: number): string {
+  if (metric.unit === "currency") {
+    // API types `currency` as string; the spec only ships INR today. Narrow
+    // to the formatter's supported set, defaulting to INR.
+    const ccy = metric.currency === "USD" ? "USD" : "INR";
+    return formatCurrency(n / 100, ccy);
+  }
+  return n.toLocaleString("en-IN");
+}
+
+/** Pct of target as a raw number — can exceed 100 for over-achievers. */
+function rawPct(metric: MyTargetMetric): number {
+  if (metric.target <= 0) return 0;
+  return (metric.actual / metric.target) * 100;
+}
+
+/**
+ * Aggregate status for the donut + footer banner. Worst-case across the
+ * per-metric statuses so the banner reflects the most-urgent state, not
+ * an averaged smoothing of it.
+ */
+function aggregateStatus(metrics: MyTargetMetric[]): MyTargetStatus {
+  if (metrics.length === 0) return "on_track";
+  if (metrics.some((m) => m.status === "at_risk")) return "at_risk";
+  if (metrics.some((m) => m.status === "behind")) return "behind";
+  if (metrics.every((m) => m.status === "ahead")) return "ahead";
+  return "on_track";
+}
+
+// ---------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------
+
 export function MyTargetsScreen() {
   const auth = useAuth();
-  const [period, setPeriod] = useState<Period>("quarterly");
+  const [period, setPeriod] = useState<MyTargetPeriod>("quarterly");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
-  const data = MOCK_DATA[period];
 
-  const enriched = useMemo(
-    () =>
-      data.metrics.map((m) => {
-        const pct = m.target > 0 ? (m.actual / m.target) * 100 : 0;
-        return { ...m, pct, status: statusFor(pct) };
-      }),
-    [data],
-  );
-
-  const hit = enriched.filter((m) => m.pct >= 100).length;
-  const behind = enriched.filter((m) => m.status === "behind").length;
-  const atRisk = enriched.filter((m) => m.status === "at_risk").length;
-  const overall = enriched.length
-    ? enriched.reduce((s, m) => s + Math.min(120, m.pct), 0) / enriched.length
-    : 0;
-  const overallStatus = statusFor(overall);
+  const targetsQuery = useMyTargets();
 
   if (!auth.isLoaded) {
     return (
@@ -141,8 +125,54 @@ export function MyTargetsScreen() {
     );
   }
 
-  const user = auth.user;
-  const daysLeft = Math.max(0, data.daysTotal - data.daysElapsed);
+  if (targetsQuery.isLoading && !targetsQuery.data) {
+    return (
+      <div className="space-y-4">
+        <Card className="h-20 animate-pulse" />
+        <Card className="h-12 w-72 animate-pulse" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="h-28 animate-pulse" />
+          ))}
+        </div>
+        <Card className="h-96 animate-pulse" />
+      </div>
+    );
+  }
+
+  if (targetsQuery.error) {
+    // 403 is the structural "you're not a rep" case — admins should never
+    // hit this page, but if they navigate here directly, surface a friendly
+    // message instead of the raw API error.
+    const is403 =
+      targetsQuery.error instanceof ApiError &&
+      targetsQuery.error.status === 403;
+    return (
+      <Card className="border-rose-200 bg-rose-50 p-6 text-sm text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400">
+        {is403
+          ? "My Targets is only available to sales reps."
+          : errorMessage(targetsQuery.error)}
+      </Card>
+    );
+  }
+
+  if (!targetsQuery.data) return null;
+
+  const { user: apiUser, periods } = targetsQuery.data;
+  const snapshot = periods[period];
+  const metrics = snapshot.metrics;
+
+  const hit = metrics.filter((m) => m.actual >= m.target && m.target > 0).length;
+  const behind = metrics.filter((m) => m.status === "behind").length;
+  const atRisk = metrics.filter((m) => m.status === "at_risk").length;
+  const overallPct = metrics.length
+    ? metrics.reduce((s, m) => s + Math.min(120, rawPct(m)), 0) / metrics.length
+    : 0;
+  const overallStatus = aggregateStatus(metrics);
+
+  const displayName = apiUser?.name || auth.user.name;
+  const roleLabel = apiUser?.role_label || "Sales Rep";
+  const daysLeft = snapshot.days_remaining;
 
   return (
     <div className="space-y-6">
@@ -150,12 +180,12 @@ export function MyTargetsScreen() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="grid h-14 w-14 place-items-center rounded-full border border-zinc-200 bg-zinc-50 text-base font-semibold text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
-            {getInitials(user.name)}
+            {getInitials(displayName)}
           </div>
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-tight">My targets</h1>
             <p className="mt-0.5 text-sm text-zinc-500">
-              {user.name} · Sales Rep
+              {displayName} · {roleLabel}
             </p>
           </div>
         </div>
@@ -163,7 +193,7 @@ export function MyTargetsScreen() {
         <div className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-2 text-sm shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
           <Calendar className="h-4 w-4 text-zinc-500" aria-hidden />
           <span className="font-medium">
-            Day {data.daysElapsed} of {data.daysTotal}
+            Day {snapshot.days_elapsed} of {snapshot.days_total}
           </span>
           <span aria-hidden className="text-zinc-300 dark:text-zinc-700">·</span>
           <span className="text-zinc-500">{daysLeft} days left</span>
@@ -199,15 +229,15 @@ export function MyTargetsScreen() {
       {/* Stat cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <OverallCard
-          pct={overall}
+          pct={overallPct}
           hit={hit}
-          total={enriched.length}
+          total={metrics.length}
           status={overallStatus}
         />
         <StatCard
           label="Targets hit"
           value={hit}
-          suffix={`/${enriched.length}`}
+          suffix={`/${metrics.length}`}
           tone={hit > 0 ? "emerald" : "zinc"}
         />
         <StatCard
@@ -224,19 +254,25 @@ export function MyTargetsScreen() {
 
       {/* Metric rows */}
       <div className="space-y-3">
-        {enriched.map((m) => (
-          <MetricCard
-            key={m.key}
-            metric={m}
-            currentPeriod={period}
-            daysElapsed={data.daysElapsed}
-            daysTotal={data.daysTotal}
-            expanded={expandedKey === m.key}
-            onToggle={() =>
-              setExpandedKey((cur) => (cur === m.key ? null : m.key))
-            }
-          />
-        ))}
+        {metrics.length === 0 ? (
+          <Card className="p-8 text-center text-sm text-zinc-500">
+            No targets configured for this period yet.
+          </Card>
+        ) : (
+          metrics.map((m) => (
+            <MetricCard
+              key={m.key}
+              metric={m}
+              currentPeriod={period}
+              periods={periods}
+              snapshot={snapshot}
+              expanded={expandedKey === m.key}
+              onToggle={() =>
+                setExpandedKey((cur) => (cur === m.key ? null : m.key))
+              }
+            />
+          ))
+        )}
       </div>
 
       {/* Footer banner */}
@@ -256,13 +292,13 @@ function OverallCard({
   pct: number;
   hit: number;
   total: number;
-  status: Status;
+  status: MyTargetStatus;
 }) {
   const display = Math.round(pct);
   const tone = statusTone(status);
   return (
     <Card className="flex items-center gap-5 p-5">
-      <Donut pct={pct} colorClass={tone.ring} />
+      <Donut pct={pct} colorClass={tone.ring} label={statusLabel(status)} />
       <div className="min-w-0">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
           Overall
@@ -288,7 +324,15 @@ function OverallCard({
   );
 }
 
-function Donut({ pct, colorClass }: { pct: number; colorClass: string }) {
+function Donut({
+  pct,
+  colorClass,
+  label,
+}: {
+  pct: number;
+  colorClass: string;
+  label: string;
+}) {
   const clamped = Math.max(0, Math.min(100, pct));
   const radius = 30;
   const circumference = 2 * Math.PI * radius;
@@ -320,7 +364,7 @@ function Donut({ pct, colorClass }: { pct: number; colorClass: string }) {
         <div className="text-center leading-tight">
           <div className="text-base font-semibold tabular-nums">{display}%</div>
           <div className="text-[9px] uppercase tracking-wider text-zinc-500">
-            On track
+            {label}
           </div>
         </div>
       </div>
@@ -364,23 +408,18 @@ function StatCard({
 
 // ---------- Metric card (collapsed + expanded) ----------
 
-interface EnrichedMetric extends MetricRow {
-  pct: number;
-  status: Status;
-}
-
 function MetricCard({
   metric,
   currentPeriod,
-  daysElapsed,
-  daysTotal,
+  periods,
+  snapshot,
   expanded,
   onToggle,
 }: {
-  metric: EnrichedMetric;
-  currentPeriod: Period;
-  daysElapsed: number;
-  daysTotal: number;
+  metric: MyTargetMetric;
+  currentPeriod: MyTargetPeriod;
+  periods: Record<MyTargetPeriod, MyTargetPeriodSnapshot>;
+  snapshot: MyTargetPeriodSnapshot;
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -398,8 +437,8 @@ function MetricCard({
           metric={metric}
           tone={tone}
           currentPeriod={currentPeriod}
-          daysElapsed={daysElapsed}
-          daysTotal={daysTotal}
+          periods={periods}
+          snapshot={snapshot}
         />
       ) : null}
     </Card>
@@ -412,14 +451,14 @@ function MetricHeader({
   expanded,
   onToggle,
 }: {
-  metric: EnrichedMetric;
+  metric: MyTargetMetric;
   tone: Tone;
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const Icon = metric.icon;
-  const fmt = formatterFor(metric);
-  const barPct = Math.max(0, Math.min(100, metric.pct));
+  const Icon = iconFor(metric.icon);
+  const pct = rawPct(metric);
+  const barPct = Math.max(0, Math.min(100, pct));
   const Chev = expanded ? ChevronDown : ChevronRight;
   return (
     <button
@@ -443,18 +482,22 @@ function MetricHeader({
           </div>
           <div className="flex items-baseline gap-3 text-sm tabular-nums">
             <span>
-              <span className="font-semibold">{fmt(metric.actual)}</span>{" "}
-              <span className="text-zinc-500">of {fmt(metric.target)}</span>
+              <span className="font-semibold">
+                {formatMetricValue(metric, metric.actual)}
+              </span>{" "}
+              <span className="text-zinc-500">
+                of {formatMetricValue(metric, metric.target)}
+              </span>
             </span>
             <span
               className={cn(
                 "font-semibold",
-                metric.pct >= 100
+                pct >= 100
                   ? "text-emerald-500"
                   : "text-zinc-700 dark:text-zinc-300",
               )}
             >
-              {Math.round(metric.pct)}%
+              {Math.round(pct)}%
             </span>
           </div>
         </div>
@@ -490,21 +533,24 @@ function MetricDetail({
   metric,
   tone,
   currentPeriod,
-  daysElapsed,
-  daysTotal,
+  periods,
+  snapshot,
 }: {
-  metric: EnrichedMetric;
+  metric: MyTargetMetric;
   tone: Tone;
-  currentPeriod: Period;
-  daysElapsed: number;
-  daysTotal: number;
+  currentPeriod: MyTargetPeriod;
+  periods: Record<MyTargetPeriod, MyTargetPeriodSnapshot>;
+  snapshot: MyTargetPeriodSnapshot;
 }) {
-  const fmt = formatterFor(metric);
-  const expectedPct = daysTotal > 0 ? (daysElapsed / daysTotal) * 100 : 0;
-  const pace = metric.pct - expectedPct;
+  const pct = rawPct(metric);
+  const expectedPct =
+    snapshot.days_total > 0
+      ? (snapshot.days_elapsed / snapshot.days_total) * 100
+      : 0;
+  const pace = pct - expectedPct;
   const remaining = Math.max(0, metric.target - metric.actual);
-  const done = metric.actual >= metric.target;
-  const barPct = Math.max(0, Math.min(100, metric.pct));
+  const done = metric.actual >= metric.target && metric.target > 0;
+  const barPct = Math.max(0, Math.min(100, pct));
   const expectedClamped = Math.max(0, Math.min(100, expectedPct));
 
   const paceTone =
@@ -531,11 +577,11 @@ function MetricDetail({
     <div className="border-t border-zinc-200 px-4 py-5 dark:border-zinc-800 sm:px-5">
       {/* Stat tiles */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <DetailTile label="Achieved" value={fmt(metric.actual)} />
-        <DetailTile label="Target" value={fmt(metric.target)} />
+        <DetailTile label="Achieved" value={formatMetricValue(metric, metric.actual)} />
+        <DetailTile label="Target" value={formatMetricValue(metric, metric.target)} />
         <DetailTile
           label="Remaining"
-          value={done ? "Done!" : fmt(remaining)}
+          value={done ? "Done!" : formatMetricValue(metric, remaining)}
           valueClass={done ? "text-emerald-500" : undefined}
         />
         <DetailTile
@@ -556,7 +602,7 @@ function MetricDetail({
         <div className="flex items-center justify-between text-xs">
           <span className="text-zinc-500">Progress</span>
           <span className="tabular-nums text-zinc-500">
-            {Math.round(metric.pct)}% of {fmt(metric.target)}
+            {Math.round(pct)}% of {formatMetricValue(metric, metric.target)}
           </span>
         </div>
         <div className="relative mt-2 h-2.5 w-full overflow-visible rounded-full bg-zinc-100 dark:bg-zinc-800">
@@ -579,21 +625,21 @@ function MetricDetail({
         </div>
       </div>
 
-      {/* All periods */}
+      {/* All periods — sourced from the same API payload (no extra fetch). */}
       <div className="mt-8">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
           All periods
         </div>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {(Object.keys(MOCK_DATA) as Period[]).map((p) => {
-            const row = MOCK_DATA[p].metrics.find((x) => x.key === metric.key);
+          {PERIOD_TABS.map(({ id }) => {
+            const row = periods[id]?.metrics.find((x) => x.key === metric.key);
             if (!row) return null;
             return (
               <PeriodMiniCard
-                key={p}
-                period={p}
+                key={id}
+                period={id}
                 metric={row}
-                isCurrent={p === currentPeriod}
+                isCurrent={id === currentPeriod}
               />
             );
           })}
@@ -641,14 +687,12 @@ function PeriodMiniCard({
   metric,
   isCurrent,
 }: {
-  period: Period;
-  metric: MetricRow;
+  period: MyTargetPeriod;
+  metric: MyTargetMetric;
   isCurrent: boolean;
 }) {
-  const fmt = formatterFor(metric);
-  const pct = metric.target > 0 ? (metric.actual / metric.target) * 100 : 0;
-  const status = statusFor(pct);
-  const tone = statusTone(status);
+  const pct = rawPct(metric);
+  const tone = statusTone(metric.status);
   const barPct = Math.max(0, Math.min(100, pct));
   return (
     <div
@@ -670,13 +714,15 @@ function PeriodMiniCard({
             tone.badgeText,
           )}
         >
-          {statusLabel(status)}
+          {statusLabel(metric.status)}
         </span>
       </div>
       <div className="mt-2 text-2xl font-semibold tabular-nums">
-        {fmt(metric.actual)}
+        {formatMetricValue(metric, metric.actual)}
       </div>
-      <div className="text-xs text-zinc-500">of {fmt(metric.target)}</div>
+      <div className="text-xs text-zinc-500">
+        of {formatMetricValue(metric, metric.target)}
+      </div>
       <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-zinc-200/70 dark:bg-zinc-800">
         <span
           aria-hidden
@@ -688,13 +734,7 @@ function PeriodMiniCard({
   );
 }
 
-function formatterFor(metric: MetricRow): (n: number) => string {
-  return metric.currency
-    ? (n) => formatCurrency(n, "INR")
-    : (n) => n.toLocaleString("en-IN");
-}
-
-function FooterBanner({ status }: { status: Status }) {
+function FooterBanner({ status }: { status: MyTargetStatus }) {
   const tone = statusTone(status);
   const copy = bannerCopy(status);
   return (
@@ -718,16 +758,9 @@ function FooterBanner({ status }: { status: Status }) {
   );
 }
 
-// ---------- Status helpers ----------
+// ---------- Status helpers (purely presentational) ----------
 
-function statusFor(pct: number): Status {
-  if (pct >= 100) return "ahead";
-  if (pct >= 70) return "on_track";
-  if (pct >= 40) return "behind";
-  return "at_risk";
-}
-
-function statusLabel(s: Status): string {
+function statusLabel(s: MyTargetStatus): string {
   switch (s) {
     case "ahead":
       return "Ahead";
@@ -751,7 +784,7 @@ interface Tone {
   bannerTitle: string;
 }
 
-function statusTone(s: Status): Tone {
+function statusTone(s: MyTargetStatus): Tone {
   switch (s) {
     case "ahead":
       return {
@@ -800,7 +833,7 @@ function statusTone(s: Status): Tone {
   }
 }
 
-function bannerCopy(status: Status): { title: string; body: string } {
+function bannerCopy(status: MyTargetStatus): { title: string; body: string } {
   switch (status) {
     case "ahead":
       return {
