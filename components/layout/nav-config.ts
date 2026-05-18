@@ -1,6 +1,7 @@
 import {
   BarChart3,
   Building2,
+  CalendarCheck,
   Filter,
   GitBranch,
   Map,
@@ -127,6 +128,15 @@ export const NAV_ITEMS: NavItem[] = [
     show: (a) => canSeeSalesTabs(a),
   },
   {
+    label: "Follow-ups",
+    href: "/sales/follow-ups",
+    icon: CalendarCheck,
+    group: "salesTeam",
+    // Sales-rep-only personal task list (calls, meetings, visits). Admins
+    // and super-admin don't have a personal calendar surface here.
+    show: (a) => isSalesMember(a),
+  },
+  {
     label: "Scorecard",
     href: "/sales/scorecard",
     icon: Trophy,
@@ -212,6 +222,7 @@ export const PAGE_TITLE_BY_PATH: Record<string, string> = {
   "/hospitals": "Hospitals",
   "/sales/leads": "Leads",
   "/sales/pipeline": "Pipeline",
+  "/sales/follow-ups": "Follow-ups",
   "/sales/scorecard": "Scorecard",
   "/sales/field-location": "Field location",
   "/sales/metrics": "Metric management",
