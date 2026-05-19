@@ -36,7 +36,6 @@ import type { ApiSubadmin } from "@/lib/api/types";
 
 import { ResetPasswordModal } from "./reset-password-modal";
 import { ReplaceAdminModal } from "./replace-admin-modal";
-import { AddMemberModal } from "./add-member-modal";
 import { AddMemberStepperModal } from "./add-member-stepper-modal";
 import { MemberDetailSheet } from "./member-detail-sheet";
 
@@ -392,21 +391,16 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
         onReplaced={refetchAll}
       />
 
-      {isSuperAdmin ? (
-        <AddMemberStepperModal
-          open={addMemberOpen}
-          onOpenChange={setAddMemberOpen}
-          teamId={teamId}
-          onCreated={refetchAll}
-        />
-      ) : (
-        <AddMemberModal
-          open={addMemberOpen}
-          onOpenChange={setAddMemberOpen}
-          teamId={teamId}
-          onCreated={refetchAll}
-        />
-      )}
+      {/* Same 3-step "Rep details → Set targets → Review" flow for both
+          SUPER_ADMIN and SALES_ADMIN. The backend scopes the create to the
+          caller's team via JWT for sales admin; super admin can pick any
+          team (via the teamId in the URL). */}
+      <AddMemberStepperModal
+        open={addMemberOpen}
+        onOpenChange={setAddMemberOpen}
+        teamId={teamId}
+        onCreated={refetchAll}
+      />
 
       <MemberDetailSheet
         member={memberDetail}

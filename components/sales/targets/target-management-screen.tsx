@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
+import { isSalesAdminOrSuperAdmin } from "@/lib/access";
 import { getInitials } from "@/lib/format";
 import { formatCurrency, formatNumber } from "@/lib/format-metric";
 import { errorMessage } from "@/lib/hooks/use-async";
@@ -391,12 +392,15 @@ export function TargetManagementScreen() {
       </div>
     );
   }
-  if (auth.user?.role !== "super_admin") {
+  // Sales admin sees their own team's reps/targets (server scopes via JWT);
+  // super admin sees all teams. Plain reps and admins from other teams are
+  // filtered out — they belong on /sales/my-targets.
+  if (!isSalesAdminOrSuperAdmin(auth)) {
     return (
       <div className="space-y-6">
         <PageHeader title="Target management" />
         <Card className="p-12 text-center text-sm text-zinc-500">
-          Target management is for super admins only.
+          Target management is for sales admins and super admins.
         </Card>
       </div>
     );

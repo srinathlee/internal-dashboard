@@ -165,10 +165,9 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/sales/targets",
     icon: Target,
     group: "salesTeam",
-    // Super-admin-only: org-wide target oversight and assignment. Sales
-    // admins manage metric definitions; only super-admin assigns hard
-    // numeric targets to individual reps.
-    show: (a) => a.user?.role === "super_admin",
+    // Sales admins manage their own team's reps + targets; super-admin sees
+    // all teams. Plain sales members go to /sales/my-targets instead.
+    show: (a) => isSalesAdminOrSuperAdmin(a),
   },
   {
     label: "My targets",
