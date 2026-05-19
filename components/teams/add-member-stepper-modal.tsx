@@ -27,10 +27,19 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ApiError } from "@/lib/api/client";
 import { formatCurrency } from "@/lib/format-metric";
 import { errorMessage } from "@/lib/hooks/use-async";
 import { useSubadminMutations } from "@/lib/hooks/use-subadmins";
+import { useTargetTemplates } from "@/lib/hooks/use-target-templates";
+import type { TargetTemplate } from "@/lib/api/sales-target-templates";
 import { cn } from "@/lib/utils";
 
 import { PasswordRevealCard } from "./password-reveal-card";
@@ -122,6 +131,7 @@ export function AddMemberStepperModal({
   const [sprints, setSprints] = useState<SprintTargets>(DEFAULT_SPRINTS);
   const [revenue, setRevenue] = useState<RevenueTargets>(DEFAULT_REVENUE);
   const [targetTab, setTargetTab] = useState<TargetTab>("leads");
+  const [templateId, setTemplateId] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -151,9 +161,60 @@ export function AddMemberStepperModal({
     setSprints(DEFAULT_SPRINTS);
     setRevenue(DEFAULT_REVENUE);
     setTargetTab("leads");
+    setTemplateId(null);
     setSubmitting(false);
     setFieldErrors({});
     setDone(null);
+  };
+
+  /**
+   * Apply a target template's metric values into the legacy LeadTargets /
+   * SprintTargets / RevenueTargets state shapes used by the form.
+   * Period mapping: MONTHLY→monthly, QUARTERLY→quarterly, YEARLY→yearly,
+   * HALF_YEARLY→half_yearly (revenue only). `weekly` isn't in the template
+   * model — we leave whatever the rep already entered (or the default).
+   */
+  const applyTemplate = (tpl: TargetTemplate) => {
+    setTemplateId(tpl.id);
+
+    const tLeads = tpl.targets.leads;
+    if (tLeads) {
+      setLeads((prev) => ({
+        weekly: prev.weekly,
+        monthly: tLeads.MONTHLY ?? prev.monthly,
+        quarterly: tLeads.QUARTERLY ?? prev.quarterly,
+        yearly: tLeads.YEARLY ?? prev.yearly,
+      }));
+    }
+
+    const tSprintsDone = tpl.targets.sprints_done;
+    const tSprintAmt = tpl.targets.sprint_amount;
+    if (tSprintsDone || tSprintAmt) {
+      setSprints((prev) => ({
+        monthly: {
+          count: tSprintsDone?.MONTHLY ?? prev.monthly.count,
+          amount: tSprintAmt?.MONTHLY ?? prev.monthly.amount,
+        },
+        quarterly: {
+          count: tSprintsDone?.QUARTERLY ?? prev.quarterly.count,
+          amount: tSprintAmt?.QUARTERLY ?? prev.quarterly.amount,
+        },
+        yearly: {
+          count: tSprintsDone?.YEARLY ?? prev.yearly.count,
+          amount: tSprintAmt?.YEARLY ?? prev.yearly.amount,
+        },
+      }));
+    }
+
+    const tRevenue = tpl.targets.revenue;
+    if (tRevenue) {
+      setRevenue((prev) => ({
+        monthly: tRevenue.MONTHLY ?? prev.monthly,
+        quarterly: tRevenue.QUARTERLY ?? prev.quarterly,
+        half_yearly: tRevenue.HALF_YEARLY ?? prev.half_yearly,
+        yearly: tRevenue.YEARLY ?? prev.yearly,
+      }));
+    }
   };
 
   const handleClose = (next: boolean) => {
@@ -198,6 +259,8 @@ export function AddMemberStepperModal({
           password,
         },
         targets: { leads, sprints, revenue },
+        // Server merges template defaults under the explicit `targets` map.
+        ...(templateId ? { template_id: templateId } : {}),
         send_welcome_email: true,
       });
 
@@ -339,6 +402,9 @@ export function AddMemberStepperModal({
               onSprints={setSprints}
               revenue={revenue}
               onRevenue={setRevenue}
+              templateId={templateId}
+              onApplyTemplate={applyTemplate}
+              onClearTemplate={() => setTemplateId(null)}
             />
           ) : null}
 
@@ -604,6 +670,9 @@ function SetTargetsStep({
   onSprints,
   revenue,
   onRevenue,
+  templateId,
+  onApplyTemplate,
+  onClearTemplate,
 }: {
   tab: TargetTab;
   onTab: (t: TargetTab) => void;
@@ -613,6 +682,9 @@ function SetTargetsStep({
   onSprints: (next: SprintTargets) => void;
   revenue: RevenueTargets;
   onRevenue: (next: RevenueTargets) => void;
+  templateId: string | null;
+  onApplyTemplate: (tpl: TargetTemplate) => void;
+  onClearTemplate: () => void;
 }) {
   const TABS: {
     key: TargetTab;
@@ -658,6 +730,12 @@ function SetTargetsStep({
         expectations.
       </p>
 
+      <TemplatePicker
+        templateId={templateId}
+        onApply={onApplyTemplate}
+        onClear={onClearTemplate}
+      />
+
       <div className="grid grid-cols-3 rounded-lg border border-zinc-200 bg-zinc-50/60 p-1 dark:border-zinc-800 dark:bg-zinc-900/40">
         {TABS.map((t) => {
           const active = tab === t.key;
@@ -701,6 +779,76 @@ function SetTargetsStep({
         <RevenuePanel value={revenue} onChange={onRevenue} />
       )}
     </section>
+  );
+}
+
+function TemplatePicker({
+  templateId,
+  onApply,
+  onClear,
+}: {
+  templateId: string | null;
+  onApply: (tpl: TargetTemplate) => void;
+  onClear: () => void;
+}) {
+  const { data: templates, isLoading, error } = useTargetTemplates();
+
+  // Hide the picker entirely when there are no templates / endpoint isn't
+  // available — keeps the stepper clean for orgs that haven't set any up.
+  if (error) return null;
+  if (!isLoading && (!templates || templates.length === 0)) return null;
+
+  const selected = templates?.find((t) => t.id === templateId) ?? null;
+
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3 dark:border-violet-900/40 dark:bg-violet-950/20">
+      <div className="min-w-[200px] flex-1">
+        <Label
+          htmlFor="m-template"
+          className="text-[10px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300"
+        >
+          Apply target template
+        </Label>
+        <Select
+          value={templateId ?? ""}
+          onValueChange={(v) => {
+            const tpl = templates?.find((t) => t.id === v);
+            if (tpl) onApply(tpl);
+          }}
+        >
+          <SelectTrigger id="m-template" className="mt-1">
+            <SelectValue
+              placeholder={
+                isLoading ? "Loading templates…" : "Choose a template (optional)"
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {(templates ?? []).map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.name}
+                {t.is_default ? " · default" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {selected ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onClear}
+          className="text-xs text-violet-700 hover:bg-violet-100 dark:text-violet-300 dark:hover:bg-violet-900/40"
+        >
+          Clear template
+        </Button>
+      ) : null}
+      <p className="basis-full text-[11px] text-zinc-500">
+        Template values pre-fill the fields below. You can still edit
+        anything — overrides win.
+      </p>
+    </div>
   );
 }
 

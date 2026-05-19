@@ -213,3 +213,48 @@ export function createLeadActivity(
     },
   );
 }
+
+// ---------- Voice notes ----------------------------------------------------
+
+export interface LeadVoiceNote {
+  url: string;
+  duration_seconds: number;
+}
+
+/** POST /leads/:id/voice-note — multipart upload of an audio file. */
+export function uploadLeadVoiceNote(
+  leadId: string,
+  audio: Blob | File,
+  durationSeconds?: number,
+): Promise<LeadVoiceNote> {
+  const fd = new FormData();
+  fd.append("audio", audio, (audio as File).name ?? "voice-note.webm");
+  if (durationSeconds !== undefined) {
+    fd.append("duration_seconds", String(durationSeconds));
+  }
+  return apiData<LeadVoiceNote>(`/api/v1/sales/leads/${leadId}/voice-note`, {
+    method: "POST",
+    body: fd,
+  });
+}
+
+// ---------- Business-card scan --------------------------------------------
+
+export interface BusinessCardScan {
+  clinic_name?: string;
+  doctor_name?: string;
+  phone?: string;
+  specialization?: string;
+  address?: string;
+  email?: string;
+}
+
+/** POST /leads/scan — OCR a business-card image to pre-fill a lead form. */
+export function scanBusinessCard(image: Blob | File): Promise<BusinessCardScan> {
+  const fd = new FormData();
+  fd.append("image", image, (image as File).name ?? "card.jpg");
+  return apiData<BusinessCardScan>("/api/v1/sales/leads/scan", {
+    method: "POST",
+    body: fd,
+  });
+}

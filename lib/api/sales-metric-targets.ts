@@ -251,3 +251,25 @@ export interface TargetRep {
 export function getTargetReps(signal?: AbortSignal): Promise<TargetRep[]> {
   return apiData<TargetRep[]>("/api/v1/sales/targets/reps", { signal });
 }
+
+// ---------- POST /sales/targets/bulk --------------------------------------
+
+export interface BulkAssignTargetsInput {
+  user_ids: string[];
+  /** Same shape as `AssignTargetsPatch` — partial per metric × period. */
+  targets: AssignTargetsPatch;
+}
+
+export interface BulkAssignTargetsResponse {
+  updated_user_count: number;
+  changed_count: number;
+}
+
+export function bulkAssignTargets(
+  input: BulkAssignTargetsInput,
+): Promise<BulkAssignTargetsResponse> {
+  return apiData<BulkAssignTargetsResponse>("/api/v1/sales/targets/bulk", {
+    method: "POST",
+    body: input,
+  });
+}

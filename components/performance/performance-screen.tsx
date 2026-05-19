@@ -29,6 +29,7 @@ import { useAuth } from "@/lib/auth";
 import { formatCurrency, formatTimestamp, timeAgo } from "@/lib/format-metric";
 import { errorMessage } from "@/lib/hooks/use-async";
 import { useMyActivity, useMyOverview } from "@/lib/hooks/use-overview";
+import { useMyStreak } from "@/lib/hooks/use-streak";
 import { cn } from "@/lib/utils";
 import type { ActivityItem, MyOverview } from "@/lib/api/types";
 import type { TeamId } from "@/lib/types";
@@ -98,6 +99,20 @@ export function PerformanceScreen() {
       activityError={activity.error}
       onRefreshActivity={() => void activity.refetch()}
     />
+  );
+}
+
+function StreakBadge() {
+  const { data, error } = useMyStreak();
+  if (error || !data || (data.streak_days ?? 0) <= 0) return null;
+  return (
+    <span
+      title={`Best streak: ${data.best_streak} days`}
+      className="inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-700 dark:border-orange-900/50 dark:bg-orange-950/40 dark:text-orange-300"
+    >
+      <Flame className="h-3.5 w-3.5" aria-hidden />
+      {data.streak_days}-day streak
+    </span>
   );
 }
 
@@ -175,9 +190,12 @@ function MemberPerformance({
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
             My overview
           </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-            {greeting}
-          </h1>
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {greeting}
+            </h1>
+            <StreakBadge />
+          </div>
           <p className="mt-1 text-sm text-zinc-500">{subtitle}</p>
         </div>
         <RangeSegmented value={range} onChange={setRange} />

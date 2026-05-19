@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, ScanLine } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { scanBusinessCard } from "@/lib/api/sales-leads";
+import { errorMessage } from "@/lib/hooks/use-async";
 import {
   LEAD_SOURCE_LABEL,
   LEAD_STAGE_LABEL,
@@ -112,14 +114,41 @@ export function NewLeadModal({
   const [form, setForm] = useState<NewLeadInput>(INITIAL);
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setForm(INITIAL);
       setErrors({});
       setSubmitting(false);
+      setScanning(false);
     }
   }, [open]);
+
+  const handleScan = async (file: File) => {
+    setScanning(true);
+    try {
+      const result = await scanBusinessCard(file);
+      // Only overwrite fields the scan actually found — preserves anything
+      // the rep already typed before scanning.
+      setForm((f) => ({
+        ...f,
+        clinicName: f.clinicName || result.clinic_name?.trim() || "",
+        doctorName: f.doctorName || result.doctor_name?.trim() || "",
+        specialization:
+          f.specialization || result.specialization?.trim() || "",
+        phone: f.phone || result.phone?.trim() || "",
+        address: f.address || result.address?.trim() || "",
+      }));
+      toast.success("Card scanned — review the auto-filled fields");
+    } catch (err) {
+      toast.error("Couldn't scan card", { description: errorMessage(err) });
+    } finally {
+      setScanning(false);
+      if (scanInputRef.current) scanInputRef.current.value = "";
+    }
+  };
 
   const update = <K extends keyof NewLeadInput>(
     key: K,
@@ -181,6 +210,37 @@ export function NewLeadModal({
             detail panel.
           </DialogDescription>
         </DialogHeader>
+
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50/60 px-3 py-2 text-xs dark:border-zinc-700 dark:bg-zinc-900/40">
+          <span className="text-zinc-600 dark:text-zinc-400">
+            Have a business card? Upload it to auto-fill the form.
+          </span>
+          <input
+            ref={scanInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleScan(file);
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={scanning}
+            onClick={() => scanInputRef.current?.click()}
+            className="gap-1.5"
+          >
+            {scanning ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : (
+              <ScanLine className="h-3.5 w-3.5" aria-hidden />
+            )}
+            Scan card
+          </Button>
+        </div>
 
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

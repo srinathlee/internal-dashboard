@@ -82,6 +82,12 @@ export interface CreateSalesRepWithTargetsInput {
     sprints?: SalesRepSprintTargets;
     revenue?: SalesRepRevenueTargets;
   };
+  /**
+   * Optional target template — server applies the template's targets first,
+   * then the `targets` field overrides per spec ("body targets override
+   * template").
+   */
+  template_id?: string;
   send_welcome_email?: boolean;
 }
 

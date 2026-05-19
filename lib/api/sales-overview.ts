@@ -94,3 +94,72 @@ export async function exportTeamData(
     body: { format },
   });
 }
+
+// ---------- Pipeline health ----------------------------------------------
+
+export interface PipelineHealthResponse {
+  stale_leads_count: number;
+  conversion_rate_pct: number;
+  at_risk_count: number;
+  /** Open shape — server may add fields. */
+  [k: string]: unknown;
+}
+
+export function getPipelineHealth(
+  signal?: AbortSignal,
+): Promise<PipelineHealthResponse> {
+  return apiData<PipelineHealthResponse>("/api/v1/sales/pipeline/health", {
+    signal,
+  });
+}
+
+// ---------- Team performance ---------------------------------------------
+
+export interface TeamPerformanceRow {
+  user_id: string;
+  user_name: string;
+  initials?: string;
+  total_leads: number;
+  closed_won: number;
+  pipeline_value: number;
+  /** Period-over-period delta as a percent. */
+  trend_pct?: number;
+  /** Per-metric breakdown — open shape per spec. */
+  metrics?: Record<string, { actual: number; target?: number }>;
+}
+
+export interface TeamPerformanceResponse {
+  period?: string;
+  rows: TeamPerformanceRow[];
+}
+
+export function getTeamPerformance(
+  signal?: AbortSignal,
+): Promise<TeamPerformanceResponse> {
+  return apiData<TeamPerformanceResponse>("/api/v1/sales/team/performance", {
+    signal,
+  });
+}
+
+// ---------- Team broadcast -----------------------------------------------
+
+export interface BroadcastInput {
+  message: string;
+  /** Omit to broadcast to all active team members. */
+  user_ids?: string[];
+}
+
+export interface BroadcastResponse {
+  sent_count: number;
+  /** Server may echo recipient ids. */
+  recipients?: string[];
+}
+
+export function broadcastToTeam(
+  input: BroadcastInput,
+): Promise<BroadcastResponse> {
+  return apiData<BroadcastResponse>("/api/v1/sales/team/broadcast", {
+    method: "POST",
+    body: input,
+  });
+}

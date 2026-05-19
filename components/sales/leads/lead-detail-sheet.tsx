@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -8,9 +8,12 @@ import {
   Calendar,
   Edit3,
   Layers,
+  Loader2,
+  Mic,
   Phone,
   StickyNote,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
@@ -35,6 +38,8 @@ import {
 import { cn } from "@/lib/utils";
 import { getInitials } from "@/lib/format";
 import { formatCurrency, formatTimestamp, timeAgo } from "@/lib/format-metric";
+import { uploadLeadVoiceNote } from "@/lib/api/sales-leads";
+import { errorMessage } from "@/lib/hooks/use-async";
 import {
   LEAD_SOURCE_LABEL,
   LEAD_STAGE_LABEL,
@@ -101,6 +106,24 @@ function LeadDetailBody({
   const ownerName = lead.ownerName;
   const [activityKind, setActivityKind] = useState<ActivityKind | null>(null);
   const [nextActionOpen, setNextActionOpen] = useState(false);
+  const [voiceUploading, setVoiceUploading] = useState(false);
+  const voiceInputRef = useRef<HTMLInputElement>(null);
+
+  const handleVoiceUpload = async (file: File) => {
+    setVoiceUploading(true);
+    try {
+      await uploadLeadVoiceNote(lead.id, file);
+      toast.success("Voice note attached");
+      onMutated?.();
+    } catch (err) {
+      toast.error("Couldn't upload voice note", {
+        description: errorMessage(err),
+      });
+    } finally {
+      setVoiceUploading(false);
+      if (voiceInputRef.current) voiceInputRef.current.value = "";
+    }
+  };
 
   return (
     <>
@@ -185,7 +208,7 @@ function LeadDetailBody({
       </div>
 
       {/* Action quad */}
-      <div className="grid grid-cols-4 gap-2 border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
+      <div className="grid grid-cols-5 gap-2 border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
         <ActionTile
           icon={Phone}
           label="Log call"
@@ -202,15 +225,29 @@ function LeadDetailBody({
           onClick={() => setActivityKind("note")}
         />
         <ActionTile
+          icon={voiceUploading ? Loader2 : Mic}
+          label={voiceUploading ? "Uploading…" : "Voice"}
+          onClick={() => voiceInputRef.current?.click()}
+          spinning={voiceUploading}
+        />
+        <ActionTile
           icon={Layers}
           label="Stage"
           onClick={() => {
-            // Focus the stage selector via DOM; it's the cleanest way to
-            // reuse the existing dropdown without duplicating its state.
             const trigger = document.querySelector<HTMLElement>(
               '[aria-label="Change stage"]',
             );
             trigger?.click();
+          }}
+        />
+        <input
+          ref={voiceInputRef}
+          type="file"
+          accept="audio/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleVoiceUpload(file);
           }}
         />
       </div>
@@ -303,18 +340,28 @@ function ActionTile({
   icon: Icon,
   label,
   onClick,
+  spinning,
 }: {
   icon: typeof Phone;
   label: string;
   onClick: () => void;
+  /** Renders the icon with a continuous spin — used while uploading. */
+  spinning?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group flex flex-col items-center gap-1.5 rounded-lg border border-zinc-200 bg-white py-3 transition-colors hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
+      disabled={spinning}
+      className="group flex flex-col items-center gap-1.5 rounded-lg border border-zinc-200 bg-white py-3 transition-colors hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
     >
-      <Icon className="h-4 w-4 text-zinc-500 group-hover:text-zinc-900 dark:group-hover:text-zinc-50" aria-hidden />
+      <Icon
+        className={cn(
+          "h-4 w-4 text-zinc-500 group-hover:text-zinc-900 dark:group-hover:text-zinc-50",
+          spinning && "animate-spin",
+        )}
+        aria-hidden
+      />
       <span className="text-[10px] font-medium text-zinc-700 dark:text-zinc-300">
         {label}
       </span>

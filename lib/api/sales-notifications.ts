@@ -9,7 +9,7 @@
  * reads them and toggles is_read.
  */
 
-import { apiData } from "./client";
+import { apiData, apiRequest } from "./client";
 import type { ApiFollowUpType } from "./sales-follow-ups";
 
 export type ApiNotificationType = "FOLLOW_UP_REMINDER" | string;
@@ -92,4 +92,11 @@ export function markAllNotificationsRead(): Promise<{ message: string }> {
     "/api/v1/sales/notifications/read-all",
     { method: "PATCH" },
   );
+}
+
+/** DELETE /notifications/:id — permanently remove a notification. */
+export function deleteNotification(id: string): Promise<void> {
+  return apiRequest<void>(`/api/v1/sales/notifications/${id}`, {
+    method: "DELETE",
+  });
 }

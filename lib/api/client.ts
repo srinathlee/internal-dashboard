@@ -171,7 +171,13 @@ async function apiRequestImpl<T>(
     Accept: "application/json",
     ...opts.headers,
   };
-  if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+  const isFormData =
+    typeof FormData !== "undefined" && opts.body instanceof FormData;
+  // FormData sets its own multipart boundary; setting Content-Type manually
+  // breaks the boundary header. Skip it.
+  if (opts.body !== undefined && !isFormData) {
+    headers["Content-Type"] = "application/json";
+  }
   if (token && !opts.skipAuth) headers["Authorization"] = `Bearer ${token}`;
 
   // server.nyraai.io uses HttpOnly cookie auth (login sets a cookie via
@@ -184,7 +190,12 @@ async function apiRequestImpl<T>(
     res = await fetch(url, {
       method: opts.method ?? (opts.body !== undefined ? "POST" : "GET"),
       headers,
-      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      body:
+        opts.body === undefined
+          ? undefined
+          : isFormData
+            ? (opts.body as FormData)
+            : JSON.stringify(opts.body),
       signal: opts.signal,
       credentials: "include",
     });

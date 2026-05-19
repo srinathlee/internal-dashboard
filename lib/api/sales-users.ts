@@ -114,3 +114,14 @@ export function updateUserStatus(
     body: { status },
   });
 }
+
+/** GET /users/me/streak — current consecutive activity streak. */
+export interface MyStreak {
+  streak_days: number;
+  last_active_date: string | null;
+  best_streak: number;
+}
+
+export function getMyStreak(signal?: AbortSignal): Promise<MyStreak> {
+  return apiData<MyStreak>("/api/v1/sales/users/me/streak", { signal });
+}

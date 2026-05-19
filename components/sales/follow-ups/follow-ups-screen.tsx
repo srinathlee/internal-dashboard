@@ -1035,6 +1035,41 @@ function NotificationsPopover() {
     }
   };
 
+  const handleDelete = async (
+    e: React.MouseEvent<HTMLButtonElement>,
+    n: ApiNotification,
+  ) => {
+    e.stopPropagation();
+    // Optimistic removal — drop the row + decrement counts immediately.
+    const prevData = listQuery.data;
+    const wasUnread = !n.is_read;
+    listQuery.setData(
+      prevData
+        ? {
+            ...prevData,
+            total: Math.max(0, prevData.total - 1),
+            unread_count: Math.max(
+              0,
+              prevData.unread_count - (wasUnread ? 1 : 0),
+            ),
+            notifications: prevData.notifications.filter((x) => x.id !== n.id),
+          }
+        : null,
+    );
+    if (wasUnread) {
+      countQuery.setCount(Math.max(0, unreadCount - 1));
+    }
+    try {
+      await mutations.remove(n.id);
+    } catch (err) {
+      toast.error("Couldn't delete notification", {
+        description: errorMessage(err),
+      });
+      void countQuery.refetch();
+      void listQuery.refetch();
+    }
+  };
+
   const handleMarkAllRead = async () => {
     if (unreadCount === 0) return;
     countQuery.setCount(0);
@@ -1121,27 +1156,31 @@ function NotificationsPopover() {
                 const meta = TYPE_META[uiType];
                 const Icon = meta.icon;
                 return (
-                  <button
+                  <div
                     key={n.id}
-                    type="button"
-                    onClick={() => void handleRowClick(n)}
                     className={cn(
-                      "flex w-full items-start gap-3 px-4 py-3 text-left transition-colors",
+                      "group relative flex items-start gap-3 px-4 py-3 transition-colors",
                       !n.is_read &&
                         "bg-violet-50/40 hover:bg-violet-50/60 dark:bg-violet-950/20 dark:hover:bg-violet-950/30",
                       n.is_read && "hover:bg-zinc-50 dark:hover:bg-zinc-900/60",
                     )}
                   >
+                    <button
+                      type="button"
+                      onClick={() => void handleRowClick(n)}
+                      aria-label={n.is_read ? n.title : `Mark "${n.title}" read`}
+                      className="absolute inset-0 z-0"
+                    />
                     <span
                       aria-hidden
                       className={cn(
-                        "mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md",
+                        "relative z-10 mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md",
                         meta.tileClass,
                       )}
                     >
                       <Icon className={cn("h-4 w-4", meta.iconClass)} />
                     </span>
-                    <div className="min-w-0 flex-1">
+                    <div className="relative z-10 min-w-0 flex-1">
                       <div className="text-sm font-semibold leading-tight">
                         {n.title}
                       </div>
@@ -1149,13 +1188,25 @@ function NotificationsPopover() {
                         {n.body}
                       </p>
                     </div>
-                    {!n.is_read ? (
-                      <span
-                        aria-label="Unread"
-                        className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500"
-                      />
-                    ) : null}
-                  </button>
+                    <div className="relative z-10 flex shrink-0 flex-col items-end gap-1.5">
+                      {!n.is_read ? (
+                        <span
+                          aria-label="Unread"
+                          className="h-1.5 w-1.5 rounded-full bg-violet-500"
+                        />
+                      ) : (
+                        <span className="h-1.5 w-1.5" aria-hidden />
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => void handleDelete(e, n)}
+                        aria-label={`Delete "${n.title}"`}
+                        className="rounded p-0.5 text-zinc-400 opacity-0 transition hover:bg-zinc-200/60 hover:text-rose-500 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-zinc-800/60 dark:hover:text-rose-400"
+                      >
+                        <X className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </div>
+                  </div>
                 );
               })
             )}
