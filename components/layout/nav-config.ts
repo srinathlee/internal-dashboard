@@ -3,13 +3,18 @@ import {
   Building2,
   CalendarCheck,
   Filter,
+  Footprints,
   GitBranch,
+  LayoutGrid,
   Map,
+  MapPinned,
   Network,
+  Radio,
   ScrollText,
   Settings,
   SlidersHorizontal,
   Target,
+  TrendingUp,
   Trophy,
   Users,
   type LucideIcon,
@@ -179,6 +184,46 @@ export const NAV_ITEMS: NavItem[] = [
     // progress per period.
     show: (a) => isSalesMember(a),
   },
+  {
+    label: "Live location",
+    href: "/sales/live-location",
+    icon: Radio,
+    group: "salesTeam",
+    // Admin-only — real-time map of reps in the field.
+    show: (a) => isSalesAdminOrSuperAdmin(a),
+  },
+  {
+    label: "Distance",
+    href: "/sales/distance",
+    icon: Footprints,
+    group: "salesTeam",
+    // Reps see their own daily distance; admins see the team breakdown.
+    show: (a) => isOnSales(a) || a.user?.role === "super_admin",
+  },
+  {
+    label: "Groups",
+    href: "/sales/groups",
+    icon: LayoutGrid,
+    group: "salesTeam",
+    // Organise reps into zones / sub-teams. Admin-only.
+    show: (a) => isSalesAdminOrSuperAdmin(a),
+  },
+  {
+    label: "Territories",
+    href: "/sales/territories",
+    icon: MapPinned,
+    group: "salesTeam",
+    // Geographic polygon assignments. Admin-only.
+    show: (a) => isSalesAdminOrSuperAdmin(a),
+  },
+  {
+    label: "Win / loss",
+    href: "/sales/analytics",
+    icon: TrendingUp,
+    group: "salesTeam",
+    // Closed-deal analytics. Admin-only.
+    show: (a) => isSalesAdminOrSuperAdmin(a),
+  },
 
   // ----- Bottom group: Settings always last -----
   {
@@ -227,6 +272,11 @@ export const PAGE_TITLE_BY_PATH: Record<string, string> = {
   "/sales/metrics": "Metric management",
   "/sales/targets": "Target management",
   "/sales/my-targets": "My targets",
+  "/sales/live-location": "Live location",
+  "/sales/distance": "Distance",
+  "/sales/groups": "Groups",
+  "/sales/territories": "Territories",
+  "/sales/analytics": "Win / loss",
   "/team": "Team",
   "/teams": "Teams",
   "/audit-log": "Audit log",

@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   KeyRound,
   Mail,
+  Megaphone,
   MoreHorizontal,
   ShieldCheck,
   Trash2,
@@ -38,6 +39,7 @@ import { ResetPasswordModal } from "./reset-password-modal";
 import { ReplaceAdminModal } from "./replace-admin-modal";
 import { AddMemberStepperModal } from "./add-member-stepper-modal";
 import { MemberDetailSheet } from "./member-detail-sheet";
+import { TeamBroadcastModal } from "./team-broadcast-modal";
 
 interface TeamDetailScreenProps {
   teamId: string;
@@ -75,6 +77,7 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
   const [resetUser, setResetUser] = useState<ApiSubadmin | null>(null);
   const [replaceAdminOpen, setReplaceAdminOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
   // Store the open member's id, then look up the freshest record on each
   // render so the sheet reflects post-mutation refetches without leaking
   // stale state via setMemberDetail(member).
@@ -188,14 +191,24 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
         title={team ? `${team.name} — team` : "Team"}
         description={team?.description}
         actions={
-          isSuperAdmin ? (
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/teams">
-                <ArrowLeft className="h-4 w-4" aria-hidden />
-                All teams
-              </Link>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBroadcastOpen(true)}
+            >
+              <Megaphone className="h-4 w-4" aria-hidden />
+              Broadcast
             </Button>
-          ) : null
+            {isSuperAdmin ? (
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/teams">
+                  <ArrowLeft className="h-4 w-4" aria-hidden />
+                  All teams
+                </Link>
+              </Button>
+            ) : null}
+          </div>
         }
       />
 
@@ -413,6 +426,11 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
           }
         }}
         onMutated={refetchAll}
+      />
+
+      <TeamBroadcastModal
+        open={broadcastOpen}
+        onOpenChange={setBroadcastOpen}
       />
     </div>
   );

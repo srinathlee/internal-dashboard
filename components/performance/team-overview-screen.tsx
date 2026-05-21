@@ -37,6 +37,7 @@ import {
   useTeamOverview,
   useTeamRoster,
 } from "@/lib/hooks/use-overview";
+import { useTeamPerformance } from "@/lib/hooks/use-team-performance";
 import { exportTeamData } from "@/lib/api/sales-overview";
 import { formatCurrency, formatNumber, timeAgo } from "@/lib/format-metric";
 import { getInitials } from "@/lib/format";
@@ -139,6 +140,8 @@ export function TeamOverviewScreen() {
         error={roster.error}
       />
 
+      <PerformanceTrendCard />
+
       <TeamActivityCard
         activities={activity.data?.activities ?? []}
         isLoading={activity.isLoading}
@@ -148,6 +151,98 @@ export function TeamOverviewScreen() {
         onRefresh={() => void activity.refetch()}
       />
     </div>
+  );
+}
+
+// ---------- Performance trend card -----------------------------------
+
+function PerformanceTrendCard() {
+  const { data, isLoading, error } = useTeamPerformance();
+
+  // Defensive: backends may omit `rows` entirely (or rename the field) before
+  // the endpoint is fully wired. Normalize to a guaranteed array.
+  const rows = Array.isArray(data?.rows) ? data!.rows : [];
+
+  // Endpoint may not be deployed yet — hide silently rather than show a
+  // broken card. The rest of the screen has plenty of trend signal already.
+  if (error || (!isLoading && rows.length === 0)) return null;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
+        <div>
+          <h2 className="text-sm font-semibold">Performance trend</h2>
+          <p className="text-xs text-zinc-500">
+            Period-over-period change per rep — from /team/performance.
+          </p>
+        </div>
+        {data?.period ? (
+          <span className="text-xs text-zinc-500">{data.period}</span>
+        ) : null}
+      </div>
+
+      <table className="w-full text-sm">
+        <thead className="bg-zinc-50/40 text-[10px] uppercase tracking-wider text-zinc-500 dark:bg-zinc-900/40">
+          <tr className="text-left">
+            <th className="px-5 py-2 font-semibold">Rep</th>
+            <th className="px-5 py-2 text-right font-semibold">Leads</th>
+            <th className="px-5 py-2 text-right font-semibold">Won</th>
+            <th className="px-5 py-2 text-right font-semibold">Pipeline</th>
+            <th className="px-5 py-2 text-right font-semibold">Trend</th>
+          </tr>
+        </thead>
+        <tbody>
+          {isLoading
+            ? Array.from({ length: 3 }).map((_, i) => (
+                <tr key={i} className="border-t border-zinc-100 dark:border-zinc-800">
+                  <td colSpan={5} className="px-5 py-4">
+                    <div className="h-3 w-full animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
+                  </td>
+                </tr>
+              ))
+            : rows.map((r) => {
+                const trend = r.trend_pct ?? 0;
+                const trendTone =
+                  trend > 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : trend < 0
+                      ? "text-rose-600 dark:text-rose-400"
+                      : "text-zinc-500";
+                return (
+                  <tr
+                    key={r.user_id}
+                    className="border-t border-zinc-100 dark:border-zinc-800"
+                  >
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <Avatar className="h-7 w-7">
+                          <AvatarFallback className="text-[10px]">
+                            {r.initials || getInitials(r.user_name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">{r.user_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums">
+                      {r.total_leads}
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400">
+                      {r.closed_won}
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums">
+                      {formatCurrency(r.pipeline_value, "INR")}
+                    </td>
+                    <td className={cn("px-5 py-3 text-right font-semibold tabular-nums", trendTone)}>
+                      {r.trend_pct === undefined
+                        ? "—"
+                        : `${trend > 0 ? "+" : ""}${Math.round(trend)}%`}
+                    </td>
+                  </tr>
+                );
+              })}
+        </tbody>
+      </table>
+    </Card>
   );
 }
 

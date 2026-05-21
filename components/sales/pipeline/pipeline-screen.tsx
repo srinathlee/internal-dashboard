@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle, Plus, Search } from "lucide-react";
+import { Activity, AlertTriangle, MessageCircle, Plus, Search, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import {
 } from "@/lib/api/adapters";
 import { sendBrochure } from "@/lib/api/sales-brochure";
 import { useLeadMutations, useLeadPeople, usePipeline } from "@/lib/hooks/use-leads";
+import { usePipelineHealth } from "@/lib/hooks/use-pipeline-health";
 import {
   usePipelineStageMutations,
   usePipelineStages,
@@ -504,6 +505,9 @@ export function PipelineScreen() {
         />
       </div>
 
+      <PipelineHealthCard />
+
+
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
         <div className="relative flex-1">
           <Search
@@ -687,6 +691,82 @@ export function PipelineScreen() {
         stage={editingStage}
         onSubmit={handleStageSubmit}
       />
+    </div>
+  );
+}
+
+function PipelineHealthCard() {
+  const { data, isLoading, error } = usePipelineHealth();
+
+  // Hide the card entirely if the backend endpoint isn't deployed yet —
+  // keeps the page clean during the rollout window.
+  if (error || (!isLoading && !data)) return null;
+
+  const stale = Number(data?.stale_leads_count ?? 0);
+  const conv = Number(data?.conversion_rate_pct ?? 0);
+  const atRisk = Number(data?.at_risk_count ?? 0);
+
+  const tone = (n: number, danger: number) =>
+    n >= danger
+      ? "text-rose-600 dark:text-rose-400"
+      : n > 0
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-emerald-600 dark:text-emerald-400";
+
+  return (
+    <Card className="grid grid-cols-1 divide-y divide-zinc-200 sm:grid-cols-3 sm:divide-x sm:divide-y-0 dark:divide-zinc-800">
+      <HealthTile
+        icon={AlertTriangle}
+        label="Stale leads"
+        value={isLoading ? "—" : String(stale)}
+        hint="No activity in 7+ days"
+        valueClass={tone(stale, 5)}
+      />
+      <HealthTile
+        icon={TrendingUp}
+        label="Conversion rate"
+        value={isLoading ? "—" : `${Math.round(conv)}%`}
+        hint="Across the open pipeline"
+        valueClass="text-zinc-900 dark:text-zinc-50"
+      />
+      <HealthTile
+        icon={Activity}
+        label="At-risk deals"
+        value={isLoading ? "—" : String(atRisk)}
+        hint="Slipping past expected pace"
+        valueClass={tone(atRisk, 3)}
+      />
+    </Card>
+  );
+}
+
+function HealthTile({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  valueClass,
+}: {
+  icon: typeof Activity;
+  label: string;
+  value: string;
+  hint: string;
+  valueClass?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 p-4">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+        <Icon className="h-4 w-4" aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          {label}
+        </div>
+        <div className={cn("text-xl font-bold tabular-nums", valueClass)}>
+          {value}
+        </div>
+        <div className="text-xs text-zinc-500">{hint}</div>
+      </div>
     </div>
   );
 }
