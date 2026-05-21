@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  clearAllNotifications,
   deleteNotification,
   getNotificationCount,
   listNotifications,
@@ -75,5 +76,9 @@ export function useNotificationMutations() {
     markRead: useCallback((id: string) => markNotificationRead(id), []),
     markAllRead: useCallback(() => markAllNotificationsRead(), []),
     remove: useCallback((id: string) => deleteNotification(id), []),
+    clearAll: useCallback(
+      (before?: string) => clearAllNotifications(before),
+      [],
+    ),
   };
 }

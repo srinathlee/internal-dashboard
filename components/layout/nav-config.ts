@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   Map,
   MapPinned,
+  Megaphone,
   Network,
   Radio,
   ScrollText,
@@ -224,6 +225,14 @@ export const NAV_ITEMS: NavItem[] = [
     // Closed-deal analytics. Admin-only.
     show: (a) => isSalesAdminOrSuperAdmin(a),
   },
+  {
+    label: "Broadcast",
+    href: "/sales/broadcast",
+    icon: Megaphone,
+    group: "salesTeam",
+    // Team-wide in-app announcements. Admin-only.
+    show: (a) => isSalesAdminOrSuperAdmin(a),
+  },
 
   // ----- Bottom group: Settings always last -----
   {
@@ -277,6 +286,7 @@ export const PAGE_TITLE_BY_PATH: Record<string, string> = {
   "/sales/groups": "Groups",
   "/sales/territories": "Territories",
   "/sales/analytics": "Win / loss",
+  "/sales/broadcast": "Broadcast",
   "/team": "Team",
   "/teams": "Teams",
   "/audit-log": "Audit log",

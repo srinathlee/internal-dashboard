@@ -31,7 +31,7 @@ import {
   LEAD_STAGE_LABEL,
   LEAD_STAGE_ORDER,
 } from "@/lib/sales-leads-data";
-import type { LeadSource, LeadStage } from "@/lib/types";
+import type { LeadPriority, LeadSource, LeadStage } from "@/lib/types";
 
 const LEAD_SOURCES: LeadSource[] = [
   "cold",
@@ -41,15 +41,19 @@ const LEAD_SOURCES: LeadSource[] = [
   "website",
 ];
 
+const LEAD_PRIORITIES: LeadPriority[] = ["Low", "Medium", "High", "Hot"];
+
 export interface NewLeadInput {
   clinicName: string;
   doctorName: string;
   specialization: string;
   phone: string;
+  email: string;
   city: string;
   area: string;
   address: string;
   source: LeadSource;
+  priority: LeadPriority;
   stage: LeadStage;
   monthlyAppointments: number;
   branches: number;
@@ -87,10 +91,12 @@ const INITIAL: NewLeadInput = {
   doctorName: "",
   specialization: "",
   phone: "",
+  email: "",
   city: "",
   area: "",
   address: "",
   source: "cold",
+  priority: "Medium",
   stage: "cold-lead",
   monthlyAppointments: 0,
   branches: 1,
@@ -139,6 +145,7 @@ export function NewLeadModal({
         specialization:
           f.specialization || result.specialization?.trim() || "",
         phone: f.phone || result.phone?.trim() || "",
+        email: f.email || result.email?.trim() || "",
         address: f.address || result.address?.trim() || "",
       }));
       toast.success("Card scanned — review the auto-filled fields");
@@ -185,6 +192,7 @@ export function NewLeadModal({
         doctorName: form.doctorName.trim(),
         specialization: form.specialization.trim(),
         phone: form.phone.trim(),
+        email: form.email.trim(),
         city: form.city.trim(),
         area: form.area.trim(),
         address: form.address.trim(),
@@ -296,6 +304,18 @@ export function NewLeadModal({
               />
             </Field>
 
+            <Field id="new-email" label="Email">
+              <Input
+                id="new-email"
+                type="email"
+                value={form.email}
+                onChange={(e) => update("email", e.target.value)}
+                inputMode="email"
+                autoComplete="email"
+                placeholder="dr.sharma@clinic.in"
+              />
+            </Field>
+
             <Field id="new-city" label="City" required error={errors.city}>
               <Input
                 id="new-city"
@@ -304,6 +324,24 @@ export function NewLeadModal({
                 aria-invalid={Boolean(errors.city)}
                 placeholder="Hyderabad"
               />
+            </Field>
+
+            <Field id="new-priority" label="Priority">
+              <Select
+                value={form.priority}
+                onValueChange={(v) => update("priority", v as LeadPriority)}
+              >
+                <SelectTrigger id="new-priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LEAD_PRIORITIES.map((p) => (
+                    <SelectItem key={p} value={p}>
+                      {p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
 
             <Field id="new-source" label="Lead source">

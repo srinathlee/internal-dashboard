@@ -3,11 +3,14 @@
 import { useState } from "react";
 import {
   Award,
+  ChevronRight,
   Clock,
+  Layers,
   Target,
   TrendingDown,
   TrendingUp,
   Users,
+  X,
 } from "lucide-react";
 import {
   Bar,
@@ -23,6 +26,7 @@ import {
 } from "recharts";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
   Select,
@@ -71,7 +75,16 @@ const HUMAN_REASON: Record<string, string> = {
 export function WinLossScreen() {
   const auth = useAuth();
   const [period, setPeriod] = useState<WinLossPeriod>("monthly");
-  const { data, isLoading, error } = useWinLossAnalytics(period);
+  // When a rep row is tapped we re-fetch scoped to that rep (§7). Holding the
+  // name too lets us label the drill-down banner without another lookup.
+  const [selectedRep, setSelectedRep] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const { data, isLoading, error } = useWinLossAnalytics(
+    period,
+    selectedRep?.id,
+  );
 
   if (!auth.isLoaded) {
     return (
@@ -123,6 +136,26 @@ export function WinLossScreen() {
         }
       />
 
+      {selectedRep ? (
+        <Card className="flex flex-wrap items-center justify-between gap-3 border-violet-200 bg-violet-50/60 px-4 py-3 dark:border-violet-900/40 dark:bg-violet-950/30">
+          <span className="text-sm text-zinc-700 dark:text-zinc-200">
+            Viewing{" "}
+            <span className="font-semibold text-zinc-900 dark:text-zinc-50">
+              {selectedRep.name}
+            </span>{" "}
+            — per-rep breakdown
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedRep(null)}
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+            Back to team
+          </Button>
+        </Card>
+      ) : null}
+
       {error ? (
         <Card className="border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300">
           {errorMessage(error)}
@@ -130,7 +163,7 @@ export function WinLossScreen() {
       ) : null}
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
         <Kpi
           icon={TrendingUp}
           label="Won"
@@ -154,6 +187,12 @@ export function WinLossScreen() {
                 : `${Math.round(data.win_rate)}%`
           }
           tone="violet"
+        />
+        <Kpi
+          icon={Layers}
+          label="Pipeline"
+          value={isLoading ? "—" : String(data?.total_pipeline ?? 0)}
+          tone="sky"
         />
         <Kpi
           icon={Clock}
@@ -288,6 +327,9 @@ export function WinLossScreen() {
         <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3 dark:border-zinc-800">
           <Users className="h-4 w-4 text-zinc-500" aria-hidden />
           <h3 className="text-sm font-semibold">Rep breakdown</h3>
+          <span className="ml-auto text-xs text-zinc-400">
+            Tap a rep to drill in
+          </span>
         </div>
         <table className="w-full text-sm">
           <thead className="bg-zinc-50/40 text-[10px] uppercase tracking-wider text-zinc-500 dark:bg-zinc-900/40">
@@ -309,37 +351,59 @@ export function WinLossScreen() {
                 </td>
               </tr>
             ) : (
-              data?.by_rep.map((r) => (
-                <tr
-                  key={r.user_id}
-                  className="border-t border-zinc-100 dark:border-zinc-800"
-                >
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <Avatar className="h-7 w-7">
-                        <AvatarFallback className="text-[10px]">
-                          {getInitials(r.user_name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="font-medium">{r.user_name}</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400">
-                    {r.won}
-                  </td>
-                  <td className="px-5 py-3 text-right tabular-nums text-rose-600 dark:text-rose-400">
-                    {r.lost}
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <span className="inline-flex items-center gap-1 font-semibold tabular-nums">
-                      {r.win_rate >= 50 ? (
-                        <Award className="h-3.5 w-3.5 text-amber-500" aria-hidden />
-                      ) : null}
-                      {Math.round(r.win_rate)}%
-                    </span>
-                  </td>
-                </tr>
-              ))
+              data?.by_rep.map((r) => {
+                const active = selectedRep?.id === r.user_id;
+                return (
+                  <tr
+                    key={r.user_id}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={active}
+                    onClick={() =>
+                      setSelectedRep({ id: r.user_id, name: r.user_name })
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedRep({ id: r.user_id, name: r.user_name });
+                      }
+                    }}
+                    className={cn(
+                      "cursor-pointer border-t border-zinc-100 transition-colors hover:bg-zinc-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring dark:border-zinc-800 dark:hover:bg-zinc-900/40",
+                      active && "bg-violet-50/50 dark:bg-violet-950/20",
+                    )}
+                  >
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <Avatar className="h-7 w-7">
+                          <AvatarFallback className="text-[10px]">
+                            {getInitials(r.user_name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">{r.user_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums text-emerald-600 dark:text-emerald-400">
+                      {r.won}
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums text-rose-600 dark:text-rose-400">
+                      {r.lost}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <span className="inline-flex items-center gap-1 font-semibold tabular-nums">
+                        {r.win_rate >= 50 ? (
+                          <Award className="h-3.5 w-3.5 text-amber-500" aria-hidden />
+                        ) : null}
+                        {Math.round(r.win_rate)}%
+                        <ChevronRight
+                          className="h-3.5 w-3.5 text-zinc-300 dark:text-zinc-600"
+                          aria-hidden
+                        />
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -357,12 +421,13 @@ function Kpi({
   icon: typeof Target;
   label: string;
   value: string;
-  tone: "emerald" | "rose" | "violet" | "zinc";
+  tone: "emerald" | "rose" | "violet" | "sky" | "zinc";
 }) {
   const toneClass = {
     emerald: "text-emerald-500 bg-emerald-50 dark:bg-emerald-950/40",
     rose: "text-rose-500 bg-rose-50 dark:bg-rose-950/40",
     violet: "text-violet-500 bg-violet-50 dark:bg-violet-950/40",
+    sky: "text-sky-500 bg-sky-50 dark:bg-sky-950/40",
     zinc: "text-zinc-500 bg-zinc-100 dark:bg-zinc-900",
   }[tone];
   return (

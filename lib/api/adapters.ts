@@ -14,6 +14,7 @@ import type {
 import type {
   Lead,
   LeadLostReason,
+  LeadPriority,
   LeadSource,
   LeadStage,
   LeadTimelineEvent,
@@ -108,6 +109,19 @@ function toLocalSource(value: string | null | undefined): LeadSource {
     : "cold") as LeadSource;
 }
 
+// ---------- Priority ----------
+
+const KNOWN_PRIORITIES: LeadPriority[] = ["Low", "Medium", "High", "Hot"];
+
+/** Normalize the backend's free-ish priority string to our union (default Medium). */
+function toLocalPriority(value: string | null | undefined): LeadPriority {
+  if (!value) return "Medium";
+  const match = KNOWN_PRIORITIES.find(
+    (p) => p.toLowerCase() === value.toLowerCase(),
+  );
+  return match ?? "Medium";
+}
+
 // ---------- Timeline ----------
 
 function timelineKindToType(
@@ -174,6 +188,8 @@ export function adaptLead(api: ApiLead, timeline: LeadTimelineEvent[] = []): Lea
     address: api.address ?? "",
     stage: toLocalStage(api.stage),
     source: toLocalSource(api.lead_source),
+    priority: toLocalPriority(api.priority),
+    email: api.email ?? undefined,
     value: api.estimated_value ?? 0,
     monthlyAppointments: api.monthly_appointments ?? 0,
     branches: api.number_of_branches ?? 1,
@@ -184,6 +200,7 @@ export function adaptLead(api: ApiLead, timeline: LeadTimelineEvent[] = []): Lea
     nextAction: api.next_action_title,
     timeline,
     lostReason: api.lost_reason ? toLocalReason(api.lost_reason) : undefined,
+    lostNotes: api.lost_note ?? undefined,
   };
 }
 

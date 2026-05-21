@@ -86,6 +86,7 @@ function mapAuthMeToUser(me: AuthMe): User {
     id: me.id,
     name: me.name || me.email || "User",
     email: me.email,
+    phone: me.phone,
     role,
     teamId,
     status,

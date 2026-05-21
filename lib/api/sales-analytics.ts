@@ -42,10 +42,12 @@ export interface WinLossResponse {
 
 export function getWinLossAnalytics(
   period: WinLossPeriod = "monthly",
+  /** Scope to a single rep — `won`/`lost`/`by_rep` come back narrowed (§7). */
+  userId?: string,
   signal?: AbortSignal,
 ): Promise<WinLossResponse> {
   return apiData<WinLossResponse>("/api/v1/sales/analytics/win-loss", {
-    query: { period },
+    query: { period, user_id: userId },
     signal,
   });
 }

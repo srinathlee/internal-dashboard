@@ -47,6 +47,9 @@ export function listLeads(
   });
 }
 
+/** Lead priority — backend default is "Medium" (§3). */
+export type LeadPriority = "Low" | "Medium" | "High" | "Hot";
+
 export interface CreateLeadInput {
   clinic_name: string;
   doctor_name: string;
@@ -56,11 +59,17 @@ export interface CreateLeadInput {
   area?: string;
   address?: string;
   lead_source?: string;
+  /** Free-text source label, stored separately from the `lead_source` enum (§3). */
+  lead_source_label?: string;
   stage?: ApiLeadStage;
   monthly_appointments?: number;
   number_of_branches?: number;
   estimated_value?: number;
   notes?: string;
+  /** Low | Medium | High | Hot — defaults to Medium server-side (§3). */
+  priority?: LeadPriority;
+  /** Rep-entered contact email (§3). */
+  email?: string;
   /** Required for SUPER_ADMIN. */
   sales_user_id?: string;
 }
@@ -100,9 +109,14 @@ export function markLeadLost(
   id: string,
   input: { reason: ApiLostReason; notes?: string },
 ): Promise<ApiLead> {
+  // The backend stores the free-text note under `lost_note` and reads it from
+  // the `note` body field (§3.3). We previously sent only `notes`, which the
+  // server ignored — so the rep's note was silently dropped. Send `note` (the
+  // documented field) and keep `notes` for any backend still reading the old
+  // key; unknown fields are ignored either way.
   return apiData<ApiLead>(`/api/v1/sales/leads/${id}/lost`, {
     method: "POST",
-    body: input,
+    body: { reason: input.reason, note: input.notes, notes: input.notes },
   });
 }
 

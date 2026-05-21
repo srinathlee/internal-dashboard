@@ -1097,6 +1097,26 @@ function NotificationsPopover() {
     }
   };
 
+  const handleClearAll = async () => {
+    if (notifications.length === 0) return;
+    // Optimistic: empty the list + zero the badge now (§6.1 server-side clear).
+    countQuery.setCount(0);
+    listQuery.setData(
+      listQuery.data
+        ? { ...listQuery.data, total: 0, unread_count: 0, notifications: [] }
+        : null,
+    );
+    try {
+      await mutations.clearAll();
+    } catch (err) {
+      toast.error("Couldn't clear notifications", {
+        description: errorMessage(err),
+      });
+      void countQuery.refetch();
+      void listQuery.refetch();
+    }
+  };
+
   return (
     <div ref={containerRef} className="relative">
       <button
@@ -1125,14 +1145,24 @@ function NotificationsPopover() {
         >
           <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
             <h3 className="text-sm font-semibold">Notifications</h3>
-            <button
-              type="button"
-              onClick={handleMarkAllRead}
-              disabled={unreadCount === 0}
-              className="text-xs font-semibold text-violet-600 transition-colors hover:text-violet-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-violet-400 dark:hover:text-violet-300"
-            >
-              Mark all read
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleMarkAllRead}
+                disabled={unreadCount === 0}
+                className="text-xs font-semibold text-violet-600 transition-colors hover:text-violet-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-violet-400 dark:hover:text-violet-300"
+              >
+                Mark all read
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAll}
+                disabled={notifications.length === 0}
+                className="text-xs font-semibold text-zinc-500 transition-colors hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400 dark:hover:text-rose-400"
+              >
+                Clear all
+              </button>
+            </div>
           </div>
 
           <div className="max-h-[420px] overflow-y-auto">

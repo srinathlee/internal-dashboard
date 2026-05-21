@@ -37,6 +37,10 @@ export function useSalesUserMutations() {
       (name: string) => updateMyProfile(name),
       [],
     ),
+    updateMyProfile: useCallback(
+      (name: string, phone?: string) => updateMyProfile(name, phone),
+      [],
+    ),
     changeMyPassword: useCallback(
       (input: { current_password: string; new_password: string }) =>
         changeMyPassword(input),

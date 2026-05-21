@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
 import { canSeeSalesTabs } from "@/lib/access";
 import {
+  LEAD_SOURCE_LABEL,
   LEAD_STAGE_LABEL,
   LEAD_STAGE_ORDER,
 } from "@/lib/sales-leads-data";
@@ -178,10 +179,13 @@ export function LeadsScreen() {
         doctor_name: patch.doctorName,
         specialization: patch.specialization,
         phone: patch.phone,
+        email: patch.email || undefined,
         city: patch.city,
         area: patch.area,
         address: patch.address,
         lead_source: patch.source,
+        lead_source_label: LEAD_SOURCE_LABEL[patch.source],
+        priority: patch.priority,
         monthly_appointments: patch.monthlyAppointments,
         number_of_branches: patch.branches,
         estimated_value: patch.value,
@@ -219,10 +223,13 @@ export function LeadsScreen() {
         doctor_name: input.doctorName,
         specialization: input.specialization || undefined,
         phone: input.phone,
+        email: input.email || undefined,
         city: input.city,
         area: input.area || undefined,
         address: input.address || undefined,
         lead_source: input.source,
+        lead_source_label: LEAD_SOURCE_LABEL[input.source],
+        priority: input.priority,
         stage: toApiStage(input.stage),
         monthly_appointments: input.monthlyAppointments,
         number_of_branches: input.branches,

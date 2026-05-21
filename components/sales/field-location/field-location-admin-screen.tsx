@@ -58,11 +58,15 @@ export function FieldLocationAdminScreen() {
   // tab is parameter-free (always all reps, always "latest only").
   const [historyUserId, setHistoryUserId] = useState<string>(ALL_EMPLOYEES);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
+  // Admins see visible pins by default; this opt-in surfaces ones reps hid
+  // from the shared map (§1.2 include_hidden).
+  const [includeHidden, setIncludeHidden] = useState(false);
 
   const peopleQuery = useLeadPeople();
   const teamPinsQuery = useFieldPins(); // every rep
   const historyPinsQuery = useFieldPins({
     userId: historyUserId === ALL_EMPLOYEES ? undefined : historyUserId,
+    includeHidden,
   });
 
   const people = peopleQuery.data ?? [];
@@ -180,22 +184,33 @@ export function FieldLocationAdminScreen() {
             <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
               Employee
             </div>
-            <Select value={historyUserId} onValueChange={setHistoryUserId}>
-              <SelectTrigger
-                className="h-9 w-full sm:w-72"
-                aria-label="Filter by employee"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_EMPLOYEES}>All employees</SelectItem>
-                {people.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex flex-wrap items-center gap-3">
+              <Select value={historyUserId} onValueChange={setHistoryUserId}>
+                <SelectTrigger
+                  className="h-9 w-full sm:w-72"
+                  aria-label="Filter by employee"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_EMPLOYEES}>All employees</SelectItem>
+                  {people.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={includeHidden}
+                  onChange={(e) => setIncludeHidden(e.target.checked)}
+                  className="h-4 w-4 accent-sky-600"
+                />
+                Show hidden pins
+              </label>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
@@ -280,12 +295,22 @@ export function FieldLocationAdminScreen() {
                         <MapPin className="h-3.5 w-3.5" />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="text-[10px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-sky-600 dark:text-sky-400">
                           {p?.name ?? "Unknown"}
+                          {pin.visible_on_map === false ? (
+                            <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[9px] font-medium normal-case tracking-normal text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                              Hidden
+                            </span>
+                          ) : null}
                         </div>
                         <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                          Location pin
+                          {pin.name || "Location pin"}
                         </div>
+                        {pin.note ? (
+                          <div className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-300">
+                            {pin.note}
+                          </div>
+                        ) : null}
                         <div className="mt-0.5 text-xs text-zinc-500">
                           {formatTimestamp(pin.captured_at)}
                         </div>

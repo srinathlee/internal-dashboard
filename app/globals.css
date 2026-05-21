@@ -1,3 +1,7 @@
+/* Leaflet base styles — needed for the live-location / territory maps to
+   render tiles, controls and popups correctly. Must precede @tailwind. */
+@import "leaflet/dist/leaflet.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

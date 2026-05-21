@@ -22,6 +22,7 @@ import {
   stageLabel,
 } from "@/lib/sales-pipeline";
 import { cn } from "@/lib/utils";
+import { LEAD_SOURCE_LABEL } from "@/lib/sales-leads-data";
 import {
   adaptLead,
   toApiReason,
@@ -218,10 +219,13 @@ export function PipelineScreen() {
         doctor_name: input.doctorName,
         specialization: input.specialization || undefined,
         phone: input.phone,
+        email: input.email || undefined,
         city: input.city,
         area: input.area || undefined,
         address: input.address || undefined,
         lead_source: input.source,
+        lead_source_label: LEAD_SOURCE_LABEL[input.source],
+        priority: input.priority,
         stage: toApiStage(input.stage),
         monthly_appointments: input.monthlyAppointments,
         number_of_branches: input.branches,

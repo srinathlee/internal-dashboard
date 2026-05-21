@@ -7,8 +7,10 @@ import {
   Building2,
   Calendar,
   Edit3,
+  Flame,
   Layers,
   Loader2,
+  Mail,
   Mic,
   Phone,
   StickyNote,
@@ -45,7 +47,13 @@ import {
   LEAD_STAGE_LABEL,
   LEAD_STAGE_ORDER,
 } from "@/lib/sales-leads-data";
-import type { Lead, LeadStage, LeadTimelineEvent } from "@/lib/types";
+import { LOST_REASON_LABEL } from "@/lib/sales-pipeline";
+import type {
+  Lead,
+  LeadPriority,
+  LeadStage,
+  LeadTimelineEvent,
+} from "@/lib/types";
 
 import { LeadStageBadge } from "./lead-stage-badge";
 import {
@@ -145,6 +153,12 @@ function LeadDetailBody({
               <Phone className="h-3 w-3" aria-hidden />
               <span className="font-mono">{lead.phone}</span>
             </span>
+            {lead.email ? (
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <Mail className="h-3 w-3 shrink-0" aria-hidden />
+                <span className="truncate">{lead.email}</span>
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -170,9 +184,12 @@ function LeadDetailBody({
             ))}
           </SelectContent>
         </Select>
-        <span className="ml-auto inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-          {LEAD_SOURCE_LABEL[lead.source]}
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {lead.priority ? <PriorityBadge priority={lead.priority} /> : null}
+          <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+            {LEAD_SOURCE_LABEL[lead.source]}
+          </span>
+        </div>
       </div>
 
       {/* 3 stat cards */}
@@ -509,10 +526,20 @@ function DetailsTab({ lead }: { lead: Lead }) {
       <Row label="Phone">
         <span className="font-mono">{lead.phone}</span>
       </Row>
+      {lead.email ? (
+        <Row label="Email">
+          <span className="break-all">{lead.email}</span>
+        </Row>
+      ) : null}
       <Row label="City">{lead.city}</Row>
       <Row label="Stage">
         <LeadStageBadge stage={lead.stage} />
       </Row>
+      {lead.priority ? (
+        <Row label="Priority">
+          <PriorityBadge priority={lead.priority} />
+        </Row>
+      ) : null}
       <Row label="Source">{LEAD_SOURCE_LABEL[lead.source]}</Row>
       <Row label="Value">
         {lead.value > 0 ? formatCurrency(lead.value, "INR") : "—"}
@@ -521,7 +548,62 @@ function DetailsTab({ lead }: { lead: Lead }) {
       <Row label="Last activity">
         {timeAgo(lead.lastActivityAt, new Date().toISOString())}
       </Row>
+      {lead.stage === "lost" && lead.lostReason ? (
+        <Row label="Lost reason">{LOST_REASON_LABEL[lead.lostReason]}</Row>
+      ) : null}
+      {lead.stage === "lost" && lead.lostNotes ? (
+        <Row label="Lost note">{lead.lostNotes}</Row>
+      ) : null}
     </dl>
+  );
+}
+
+// ---------------------------------------------------------------
+// Priority badge
+// ---------------------------------------------------------------
+
+const PRIORITY_META: Record<
+  LeadPriority,
+  { label: string; className: string; icon: boolean }
+> = {
+  Hot: {
+    label: "Hot",
+    className:
+      "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
+    icon: true,
+  },
+  High: {
+    label: "High",
+    className:
+      "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+    icon: false,
+  },
+  Medium: {
+    label: "Medium",
+    className:
+      "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300",
+    icon: false,
+  },
+  Low: {
+    label: "Low",
+    className:
+      "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+    icon: false,
+  },
+};
+
+function PriorityBadge({ priority }: { priority: LeadPriority }) {
+  const meta = PRIORITY_META[priority];
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+        meta.className,
+      )}
+    >
+      {meta.icon ? <Flame className="h-3 w-3" aria-hidden /> : null}
+      {meta.label}
+    </span>
   );
 }
 

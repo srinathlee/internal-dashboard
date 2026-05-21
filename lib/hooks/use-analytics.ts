@@ -7,6 +7,12 @@ import {
 
 import { useAsync } from "./use-async";
 
-export function useWinLossAnalytics(period: WinLossPeriod = "monthly") {
-  return useAsync((signal) => getWinLossAnalytics(period, signal), [period]);
+export function useWinLossAnalytics(
+  period: WinLossPeriod = "monthly",
+  userId?: string,
+) {
+  return useAsync(
+    (signal) => getWinLossAnalytics(period, userId, signal),
+    [period, userId],
+  );
 }

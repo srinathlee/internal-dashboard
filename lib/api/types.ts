@@ -313,12 +313,20 @@ export interface ApiLead {
   area: string;
   city: string;
   lead_source: string;
+  /** Free-text source label, stored separately from `lead_source` (§3). */
+  lead_source_label?: string | null;
   notes: string;
   stage: ApiLeadStage;
   estimated_value: number;
+  /** Low | Medium | High | Hot — defaults to "Medium" (§3). */
+  priority?: string | null;
+  /** Rep-entered contact email (§3). */
+  email?: string | null;
   sprint_started_at: string | null;
   subscription_closed_at: string | null;
   lost_reason: ApiLostReason | null;
+  /** Free-text note captured when the lead was marked lost (§3.3). */
+  lost_note?: string | null;
   stage_changed_at: string;
   last_activity_at: string;
   next_action_title: string | null;
@@ -464,8 +472,17 @@ export interface FieldPin {
   latitude: number;
   longitude: number;
   city: string | null;
-  source: "client" | "ip";
+  /** Optional on the newer backend, which omits the capture source. */
+  source?: "client" | "ip";
   captured_at: string;
+  /** Server's own `recorded_at`, preserved when present (§1). */
+  recorded_at?: string;
+  /** Rep-entered label for the pin (max 120 chars) — newer backend (§1). */
+  name?: string | null;
+  /** Rep-entered note attached to the pin — newer backend (§1). */
+  note?: string | null;
+  /** Whether the pin is shown on the shared map. Defaults to true. */
+  visible_on_map?: boolean;
 }
 
 // ---------- Scoring rules ----------

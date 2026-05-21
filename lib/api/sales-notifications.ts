@@ -100,3 +100,20 @@ export function deleteNotification(id: string): Promise<void> {
     method: "DELETE",
   });
 }
+
+export interface ClearNotificationsResponse {
+  deleted: number;
+}
+
+/**
+ * DELETE /notifications — bulk-clear notifications (§6.1). Pass an ISO `before`
+ * cutoff to only clear notifications older than that instant; omit to clear all.
+ */
+export function clearAllNotifications(
+  before?: string,
+): Promise<ClearNotificationsResponse> {
+  return apiData<ClearNotificationsResponse>("/api/v1/sales/notifications", {
+    method: "DELETE",
+    query: before ? { before } : undefined,
+  });
+}

@@ -38,6 +38,7 @@ interface Pin {
   lat: number;
   lng: number;
   timestamp: string;
+  name?: string;
 }
 
 type LocationStatus = "idle" | "requesting" | "granted" | "denied" | "unavailable";
@@ -74,7 +75,7 @@ export function FieldLocationScreen() {
   const [filter, setFilter] = useState<HistoryFilter>("all");
 
   const pinsQuery = useFieldPins();
-  const { drop, clearAll } = useFieldPinMutations();
+  const { drop, remove, clearAll } = useFieldPinMutations();
 
   const pins = useMemo<Pin[]>(() => {
     return (pinsQuery.data ?? []).map((p) => ({
@@ -82,6 +83,7 @@ export function FieldLocationScreen() {
       lat: p.latitude,
       lng: p.longitude,
       timestamp: p.captured_at,
+      name: p.name ?? undefined,
     }));
   }, [pinsQuery.data]);
 
@@ -163,6 +165,17 @@ export function FieldLocationScreen() {
       void pinsQuery.refetch();
     } catch (err) {
       toast.error("Couldn't clear pins", { description: errorMessage(err) });
+    }
+  };
+
+  const handleRemove = async (id: string) => {
+    try {
+      await remove(id);
+      if (activePinId === id) setActivePinId(null);
+      toast.success("Pin removed");
+      void pinsQuery.refetch();
+    } catch (err) {
+      toast.error("Couldn't remove pin", { description: errorMessage(err) });
     }
   };
 
@@ -319,12 +332,15 @@ export function FieldLocationScreen() {
             ) : (
               <ul role="list" className="mt-3 divide-y divide-zinc-100 dark:divide-zinc-800">
                 {filteredPins.map((pin, idx) => (
-                  <li key={pin.id} className="py-3 first:pt-0 last:pb-0">
+                  <li
+                    key={pin.id}
+                    className="flex items-start gap-1 py-3 first:pt-0 last:pb-0"
+                  >
                     <button
                       type="button"
                       onClick={() => setActivePinId(pin.id)}
                       className={cn(
-                        "flex w-full items-start gap-3 rounded-md p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "flex flex-1 items-start gap-3 rounded-md p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         activePinId === pin.id
                           ? "bg-zinc-50 dark:bg-zinc-900"
                           : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
@@ -352,7 +368,7 @@ export function FieldLocationScreen() {
                           ) : null}
                         </div>
                         <p className="mt-0.5 text-sm text-zinc-900 dark:text-zinc-100">
-                          Location pin
+                          {pin.name || "Location pin"}
                         </p>
                         <p className="mt-0.5 truncate font-mono text-xs text-zinc-500">
                           {formatCoord(pin.lat, pin.lng)}
@@ -367,6 +383,14 @@ export function FieldLocationScreen() {
                             : "text-zinc-300",
                         )}
                       />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(pin.id)}
+                      aria-label="Remove pin"
+                      className="mt-2 grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-400 transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-rose-950/40 dark:hover:text-rose-400"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
                     </button>
                   </li>
                 ))}

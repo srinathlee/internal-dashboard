@@ -49,7 +49,8 @@ export function useLocationTrack(
   q: { user_id?: string; date?: string } = {},
 ) {
   return useAsync(
-    (signal) => getLocationTrack(q, signal),
+    (signal) =>
+      q.user_id ? getLocationTrack(q, signal) : Promise.resolve(null),
     [q.user_id ?? "", q.date ?? ""],
   );
 }

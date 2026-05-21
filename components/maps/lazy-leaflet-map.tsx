@@ -3,14 +3,14 @@
 /**
  * Map component that lazily loads Leaflet at runtime.
  *
- * Leaflet + react-leaflet are intentionally **optional dependencies** —
- * the rest of the dashboard works without a map library and the bundle
- * stays small. Install with:
+ * `leaflet` is a real dependency, but we still import it via a dynamic
+ * `import()` inside an effect so the (window-dependent) library is only
+ * evaluated in the browser — never during SSR — and ships in its own
+ * async chunk rather than the main bundle. Its CSS is loaded globally
+ * from `app/globals.css`.
  *
- *     npm i leaflet react-leaflet
- *
- * If they're not installed (or the imports fail), the component renders
- * a placeholder card with installation instructions instead of crashing.
+ * If the import ever fails at runtime the component renders a placeholder
+ * card instead of crashing.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -25,6 +25,8 @@ export interface MapMarker {
   lng: number;
   label: string;
   color?: string;
+  /** Circle radius in px. Defaults to 8. Use a smaller value for checkpoints. */
+  radius?: number;
   /** Optional pop-up content rendered as plain text. */
   popup?: string;
 }
@@ -36,11 +38,21 @@ export interface MapPolygon {
   label?: string;
 }
 
+/** An open path (e.g. a rep's GPS route) — never closed like a polygon. */
+export interface MapPolyline {
+  id: string;
+  points: { lat: number; lng: number }[];
+  color?: string;
+  label?: string;
+  dashed?: boolean;
+}
+
 export interface LazyLeafletMapProps {
   center: { lat: number; lng: number };
   zoom?: number;
   markers?: MapMarker[];
   polygons?: MapPolygon[];
+  polylines?: MapPolyline[];
   /**
    * Called when the user clicks an empty spot on the map. Coordinates are
    * in WGS84. Used by the territory editor to grow the polygon.
@@ -98,35 +110,26 @@ export function LazyLeafletMap(props: LazyLeafletMapProps) {
   const mapRef = useRef<unknown>(null);
   const markerLayerRef = useRef<unknown>(null);
   const polygonLayerRef = useRef<unknown>(null);
+  const polylineLayerRef = useRef<unknown>(null);
   const [L, setL] = useState<LeafletModule | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Lazy-load Leaflet + its CSS. The string-indirected import keeps the
-  // TypeScript compiler from requiring the package to be installed.
+  // Lazy-load Leaflet in the browser only. Webpack splits this into its own
+  // async chunk; the effect never runs during SSR, so Leaflet's window/document
+  // access at module-eval time is safe. CSS comes from `app/globals.css`.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const moduleName = "leaflet";
-        const cssName = "leaflet/dist/leaflet.css";
-        // CSS side-effect import; missing CSS isn't fatal but breaks tiles.
-        try {
-          await import(/* webpackIgnore: true */ cssName);
-        } catch {
-          /* ignore */
-        }
-        const mod = (await import(
-          /* webpackIgnore: true */ moduleName
-        )) as unknown;
+        const mod = (await import("leaflet")) as unknown;
         if (cancelled) return;
-        const lib = (mod as { default?: LeafletModule }).default ??
+        const lib =
+          (mod as { default?: LeafletModule }).default ??
           (mod as LeafletModule);
         setL(lib);
       } catch {
         if (!cancelled) {
-          setLoadError(
-            "Map library not installed — run `npm i leaflet` to enable.",
-          );
+          setLoadError("Map failed to load. Please refresh the page.");
         }
       }
     })();
@@ -161,14 +164,32 @@ export function LazyLeafletMap(props: LazyLeafletMapProps) {
       activeMap = existing;
     }
 
-    // Rebuild marker + polygon layers each render — Leaflet doesn't diff for us.
+    // Rebuild marker + polygon + polyline layers each render — Leaflet doesn't
+    // diff for us.
     (markerLayerRef.current as LeafletLayer | null)?.remove();
     (polygonLayerRef.current as LeafletLayer | null)?.remove();
+    (polylineLayerRef.current as LeafletLayer | null)?.remove();
+
+    // Routes/paths sit beneath the markers, so add them first.
+    const polylineLayer = L.layerGroup().addTo(activeMap);
+    for (const p of props.polylines ?? []) {
+      if (p.points.length < 2) continue;
+      const latlngs = p.points.map((pt) => [pt.lat, pt.lng] as [number, number]);
+      const line = L.polyline(latlngs, {
+        color: p.color ?? "#8b5cf6",
+        weight: 3,
+        opacity: 0.85,
+        ...(p.dashed ? { dashArray: "5 6" } : {}),
+      });
+      if (p.label) line.bindPopup(p.label);
+      line.addTo(polylineLayer);
+    }
+    polylineLayerRef.current = polylineLayer;
 
     const markerLayer = L.layerGroup().addTo(activeMap);
     for (const m of props.markers ?? []) {
       const marker = L.circleMarker([m.lat, m.lng], {
-        radius: 8,
+        radius: m.radius ?? 8,
         color: m.color ?? "#8b5cf6",
         weight: 2,
         fillColor: m.color ?? "#8b5cf6",
@@ -199,7 +220,7 @@ export function LazyLeafletMap(props: LazyLeafletMapProps) {
       poly.addTo(polygonLayer);
     }
     polygonLayerRef.current = polygonLayer;
-  }, [L, props.center.lat, props.center.lng, props.zoom, props.markers, props.polygons, props.onMapClick]);
+  }, [L, props.center.lat, props.center.lng, props.zoom, props.markers, props.polygons, props.polylines, props.onMapClick]);
 
   // Tear down on unmount so we don't leak a Leaflet instance per render.
   useEffect(() => {

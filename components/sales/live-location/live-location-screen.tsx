@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Activity,
   BatteryLow,
   CircleDot,
   Loader2,
   MapPin,
+  Navigation,
   RefreshCw,
+  Route,
   Wifi,
   WifiOff,
+  X,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -20,9 +23,13 @@ import { useAuth } from "@/lib/auth";
 import { isSalesAdminOrSuperAdmin } from "@/lib/access";
 import { getInitials } from "@/lib/format";
 import { errorMessage } from "@/lib/hooks/use-async";
-import { useLocationTeamStatus } from "@/lib/hooks/use-locations";
+import { useLocationTeamStatus, useLocationTrack } from "@/lib/hooks/use-locations";
 import { connectLocationSocket } from "@/lib/realtime/location-socket";
-import { LazyLeafletMap, type MapMarker } from "@/components/maps/lazy-leaflet-map";
+import {
+  LazyLeafletMap,
+  type MapMarker,
+  type MapPolyline,
+} from "@/components/maps/lazy-leaflet-map";
 import { cn } from "@/lib/utils";
 import type {
   TeamStatusMember,
@@ -47,6 +54,10 @@ export function LiveLocationScreen() {
     "connecting" | "live" | "offline"
   >("connecting");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // GPS track of the currently-selected rep (today). Resolves to null while
+  // nothing is selected, so no needless request fires.
+  const trackQuery = useLocationTrack({ user_id: selectedId ?? undefined });
 
   // Periodic refetch so the list stays fresh on its own even if the WS
   // never connects.
@@ -127,7 +138,9 @@ export function LiveLocationScreen() {
   });
 
   const liveMembers = members.filter((m) => m.lat !== null && m.lng !== null);
-  const markers: MapMarker[] = liveMembers.map((m) => ({
+
+  // "All reps" view: one marker per rep with a known position.
+  const teamMarkers: MapMarker[] = liveMembers.map((m) => ({
     id: m.user_id,
     lat: m.lat as number,
     lng: m.lng as number,
@@ -138,7 +151,7 @@ export function LiveLocationScreen() {
     }${m.last_updated_at ? ` ${new Date(m.last_updated_at).toLocaleTimeString()}` : ""}`,
   }));
 
-  const mapCenter = useMemo(() => {
+  const teamCenter = (() => {
     if (liveMembers.length === 0) return { lat: 17.385, lng: 78.4867 }; // Hyderabad
     const avg = liveMembers.reduce(
       (acc, m) => ({
@@ -151,7 +164,125 @@ export function LiveLocationScreen() {
       lat: avg.lat / liveMembers.length,
       lng: avg.lng / liveMembers.length,
     };
-  }, [liveMembers]);
+  })();
+
+  // ---- Selected rep: route + checkpoints ---------------------------------
+  const selectedMember = selectedId
+    ? members.find((m) => m.user_id === selectedId) ?? null
+    : null;
+
+  // Only trust the track once it's actually for the selected rep — avoids
+  // briefly painting the previous rep's path during a selection change.
+  const track =
+    trackQuery.data && trackQuery.data.user_id === selectedId
+      ? trackQuery.data
+      : null;
+  const trackSessions = track?.tracks ?? [];
+  const trackPoints = trackSessions.flatMap((s) => s.points);
+
+  const fmtTime = (t: string) =>
+    new Date(t).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+  // One polyline per session, so we never connect two sessions across a gap.
+  const routePolylines: MapPolyline[] = trackSessions
+    .filter((s) => s.points.length >= 2)
+    .map((s) => ({
+      id: s.session_id,
+      points: s.points.map((p) => ({ lat: p.lat, lng: p.lng })),
+      color: "#8b5cf6",
+    }));
+
+  const checkpointMarkers: MapMarker[] = trackPoints.map((p, i) => {
+    const isStart = i === 0 && trackPoints.length > 1;
+    const isLatest = i === trackPoints.length - 1;
+    if (isStart) {
+      return {
+        id: "cp-start",
+        lat: p.lat,
+        lng: p.lng,
+        label: "Start",
+        color: "#10b981",
+        radius: 7,
+        popup: `Start · ${fmtTime(p.t)}`,
+      };
+    }
+    if (isLatest) {
+      return {
+        id: "cp-latest",
+        lat: p.lat,
+        lng: p.lng,
+        label: selectedMember?.user_name ?? "Latest",
+        color: "#8b5cf6",
+        radius: 8,
+        popup: `${selectedMember?.user_name ?? "Rep"} · ${
+          selectedMember?.is_live ? "Live now" : "Latest"
+        } ${fmtTime(p.t)}`,
+      };
+    }
+    return {
+      id: `cp-${i}`,
+      lat: p.lat,
+      lng: p.lng,
+      label: `Checkpoint ${i + 1}`,
+      color: "#a78bfa",
+      radius: 4,
+      popup: `Checkpoint ${i + 1} · ${fmtTime(p.t)}`,
+    };
+  });
+
+  // If the rep has a known position but no recorded track yet, still drop a
+  // single marker so the map isn't empty.
+  const repMarkers: MapMarker[] =
+    checkpointMarkers.length > 0
+      ? checkpointMarkers
+      : selectedMember && selectedMember.lat !== null && selectedMember.lng !== null
+        ? [
+            {
+              id: selectedMember.user_id,
+              lat: selectedMember.lat,
+              lng: selectedMember.lng,
+              label: selectedMember.user_name,
+              color: "#8b5cf6",
+              radius: 8,
+              popup: `${selectedMember.user_name} · current position`,
+            },
+          ]
+        : [];
+
+  const repCenter =
+    trackPoints.length > 0
+      ? (() => {
+          const avg = trackPoints.reduce(
+            (acc, p) => ({ lat: acc.lat + p.lat, lng: acc.lng + p.lng }),
+            { lat: 0, lng: 0 },
+          );
+          return {
+            lat: avg.lat / trackPoints.length,
+            lng: avg.lng / trackPoints.length,
+          };
+        })()
+      : selectedMember && selectedMember.lat !== null && selectedMember.lng !== null
+        ? { lat: selectedMember.lat, lng: selectedMember.lng }
+        : null;
+
+  const isRepView = selectedMember !== null;
+  const mapMarkers = isRepView ? repMarkers : teamMarkers;
+  const mapPolylines = isRepView ? routePolylines : [];
+  const mapCenter = isRepView ? repCenter ?? teamCenter : teamCenter;
+  const mapZoom = isRepView
+    ? trackPoints.length > 1
+      ? 14
+      : 15
+    : liveMembers.length > 0
+      ? 11
+      : 10;
+  const totalKm =
+    track?.total_meters && track.total_meters > 0
+      ? (track.total_meters / 1000).toFixed(1)
+      : null;
 
   return (
     <div className="space-y-6">
@@ -219,10 +350,57 @@ export function LiveLocationScreen() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[2fr_1fr]">
         <Card className="overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-2 border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
+            {selectedMember ? (
+              <>
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <Avatar className="h-7 w-7">
+                    <AvatarFallback className="text-[10px]">
+                      {getInitials(selectedMember.user_name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">
+                      {selectedMember.user_name}&rsquo;s route today
+                    </div>
+                    <div className="text-[11px] text-zinc-500">
+                      {trackQuery.isLoading
+                        ? "Loading checkpoints…"
+                        : trackPoints.length > 0
+                          ? `${trackPoints.length} checkpoint${
+                              trackPoints.length === 1 ? "" : "s"
+                            }${totalKm ? ` · ${totalKm} km travelled` : ""}`
+                          : "No checkpoints recorded today"}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedId(null)}
+                >
+                  <X className="h-4 w-4" aria-hidden />
+                  Show all reps
+                </Button>
+              </>
+            ) : (
+              <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+                <Route className="h-3.5 w-3.5" aria-hidden />
+                Showing all reps — select a rep on the right to trace their
+                checkpoints.
+              </div>
+            )}
+          </div>
+          {selectedMember && trackQuery.error ? (
+            <div className="border-b border-rose-100 bg-rose-50 px-4 py-2 text-[11px] text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-300">
+              {errorMessage(trackQuery.error)}
+            </div>
+          ) : null}
           <LazyLeafletMap
             center={mapCenter}
-            zoom={liveMembers.length > 0 ? 11 : 10}
-            markers={markers}
+            zoom={mapZoom}
+            markers={mapMarkers}
+            polylines={mapPolylines}
             className="h-[520px] rounded-none border-none"
           />
         </Card>
@@ -230,6 +408,9 @@ export function LiveLocationScreen() {
         <Card className="overflow-hidden">
           <div className="border-b border-zinc-100 px-4 py-3 dark:border-zinc-800">
             <h3 className="text-sm font-semibold">Team status</h3>
+            <p className="mt-0.5 text-[11px] text-zinc-500">
+              Click a rep to trace their checkpoints on the map.
+            </p>
           </div>
           <div className="max-h-[480px] overflow-y-auto">
             {members.length === 0 ? (
@@ -237,12 +418,16 @@ export function LiveLocationScreen() {
                 {status.isLoading ? "Loading…" : "No reps in your team."}
               </div>
             ) : (
-              members.map((m) => (
+              members.map((m, i) => (
                 <MemberRow
-                  key={m.user_id}
+                  key={`${m.user_id}-${i}`}
                   member={m}
                   active={selectedId === m.user_id}
-                  onClick={() => setSelectedId(m.user_id)}
+                  onClick={() =>
+                    setSelectedId((prev) =>
+                      prev === m.user_id ? null : m.user_id,
+                    )
+                  }
                 />
               ))
             )}
@@ -381,6 +566,12 @@ function MemberRow({
           ) : null}
         </div>
       </div>
+      {active ? (
+        <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+          <Navigation className="h-2.5 w-2.5" aria-hidden />
+          Viewing
+        </span>
+      ) : null}
     </button>
   );
 }

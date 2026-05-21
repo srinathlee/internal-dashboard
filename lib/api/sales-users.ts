@@ -62,10 +62,18 @@ export function inviteSalesMember(
   });
 }
 
-export function updateMyProfile(name: string): Promise<ApiUser> {
+/**
+ * PATCH /api/v1/sales/users/me/profile — update the signed-in user's name and,
+ * optionally, phone (§4). `name` is required; `phone` is only sent when
+ * provided so we don't clobber a stored value with an empty string.
+ */
+export function updateMyProfile(
+  name: string,
+  phone?: string,
+): Promise<ApiUser> {
   return apiData<ApiUser>("/api/v1/sales/users/me/profile", {
     method: "PATCH",
-    body: { name },
+    body: phone === undefined ? { name } : { name, phone },
   });
 }
 

@@ -77,6 +77,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  /** Contact phone, when the backend supplies one. */
+  phone?: string;
   role: Role;
   /** null for super_admin (no specific team) */
   teamId: TeamId | null;
@@ -182,6 +184,9 @@ export type LeadSource =
   | "event"
   | "website";
 
+/** Lead priority band. Defaults to "Medium" when unset. */
+export type LeadPriority = "Low" | "Medium" | "High" | "Hot";
+
 export type LeadActivityType =
   | "stage-change"
   | "note"
@@ -220,6 +225,10 @@ export interface Lead {
   address: string;
   stage: LeadStage;
   source: LeadSource;
+  /** Low | Medium | High | Hot. Defaults to "Medium" on the backend. */
+  priority?: LeadPriority;
+  /** Contact email, when one has been captured. */
+  email?: string;
   /**
    * Monthly subscription value in INR. May be 0 when no quote has been
    * delivered yet — the UI shows "—" in that case.

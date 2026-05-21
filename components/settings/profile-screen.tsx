@@ -7,6 +7,7 @@ import {
   KeyRound,
   Loader2,
   Mail,
+  Phone,
   ShieldCheck,
   UserCircle,
 } from "lucide-react";
@@ -75,19 +76,28 @@ function IdentityCard() {
   const teamLabel = user.teamId ? teamDisplayName(user.teamId) : null;
 
   const [name, setName] = useState(user.name);
+  const [phone, setPhone] = useState(user.phone ?? "");
   const [submitting, setSubmitting] = useState(false);
-  const { updateMyName } = useSalesUserMutations();
+  const { updateMyProfile } = useSalesUserMutations();
 
   useEffect(() => {
     setName(user.name);
   }, [user.name]);
 
-  const dirty = name.trim() !== user.name.trim() && name.trim().length > 0;
+  useEffect(() => {
+    setPhone(user.phone ?? "");
+  }, [user.phone]);
+
+  const nameValid = name.trim().length > 0;
+  const dirty =
+    nameValid &&
+    (name.trim() !== user.name.trim() ||
+      phone.trim() !== (user.phone ?? "").trim());
 
   const handleSave = async () => {
     setSubmitting(true);
     try {
-      await updateMyName(name.trim());
+      await updateMyProfile(name.trim(), phone.trim());
       await auth.refreshUser();
       toast.success("Profile saved");
     } catch (err) {
@@ -148,6 +158,26 @@ function IdentityCard() {
               <p className="text-xs text-zinc-500">
                 Contact your admin to change your email.
               </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="profile-phone">Phone</Label>
+              <div className="relative">
+                <Phone
+                  aria-hidden
+                  className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400"
+                />
+                <Input
+                  id="profile-phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+91 98765 43210"
+                  className="pl-9"
+                />
+              </div>
             </div>
           </div>
 
