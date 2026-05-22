@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Calendar,
   ChevronDown,
@@ -80,6 +81,7 @@ export function ScorecardAdminScreen() {
     value: currentMonthKey(),
   });
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const router = useRouter();
 
   const periodQuery = period.mode === "range" ? {} : { period: period.value };
   const leaderboard = useLeaderboard({
@@ -160,10 +162,7 @@ export function ScorecardAdminScreen() {
           reps={reps}
           isLoading={leaderboard.isLoading && reps.length === 0}
           onRefresh={() => void leaderboard.refetch()}
-          onSelectRep={(id) => {
-            setSelectedUserId(id);
-            setTab("performance");
-          }}
+          onSelectRep={(id) => router.push(`/sales/reps/${id}`)}
         />
       ) : (
         <PerformanceView

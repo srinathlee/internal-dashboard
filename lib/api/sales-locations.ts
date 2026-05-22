@@ -189,22 +189,129 @@ export interface TrackResponse {
   tracks: TrackSession[];
 }
 
+// The track endpoints have drifted across backend revisions: the GPS array
+// has appeared under `points` / `path` / `coordinates`, coordinates as
+// `lat`/`lng` or `latitude`/`longitude` (or `lon`), and occasionally as
+// GeoJSON `[lng, lat]` tuples — while the day rollup (`session_count`,
+// `total_meters`) stays snake_case. Normalize every variant to the
+// TrackResponse the map components expect, so a single wire change can't
+// silently blank the map. See memory: lat/lng vs latitude/longitude drift.
+
+function asRecord(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+}
+
+function pickNumber(
+  rec: Record<string, unknown>,
+  ...keys: string[]
+): number | undefined {
+  for (const k of keys) {
+    const v = rec[k];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) {
+      return Number(v);
+    }
+  }
+  return undefined;
+}
+
+function pickString(
+  rec: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined {
+  for (const k of keys) {
+    const v = rec[k];
+    if (typeof v === "string" && v !== "") return v;
+  }
+  return undefined;
+}
+
+function pickArray(rec: Record<string, unknown>, ...keys: string[]): unknown[] {
+  for (const k of keys) {
+    if (Array.isArray(rec[k])) return rec[k] as unknown[];
+  }
+  return [];
+}
+
+function normalizeTrackPoint(raw: unknown): TrackPoint | null {
+  let lat: number | undefined;
+  let lng: number | undefined;
+  let t: string | undefined;
+  let acc: number | undefined;
+
+  if (Array.isArray(raw)) {
+    // GeoJSON convention is [lng, lat].
+    lng = typeof raw[0] === "number" ? raw[0] : undefined;
+    lat = typeof raw[1] === "number" ? raw[1] : undefined;
+  } else {
+    const p = asRecord(raw);
+    lat = pickNumber(p, "lat", "latitude");
+    lng = pickNumber(p, "lng", "lon", "long", "longitude");
+    t = pickString(p, "t", "timestamp", "time", "recorded_at", "captured_at");
+    acc = pickNumber(p, "acc", "accuracy");
+  }
+
+  if (lat === undefined || lng === undefined) return null;
+  return { t: t ?? "", lat, lng, ...(acc !== undefined ? { acc } : {}) };
+}
+
+function normalizeTrackSession(raw: unknown, index: number): TrackSession {
+  const s = asRecord(raw);
+  const points = pickArray(
+    s,
+    "points",
+    "path",
+    "coordinates",
+    "coords",
+    "pings",
+    "locations",
+  )
+    .map(normalizeTrackPoint)
+    .filter((p): p is TrackPoint => p !== null);
+
+  return {
+    session_id:
+      pickString(s, "session_id", "sessionId", "id") ?? `session-${index}`,
+    started_at: pickString(s, "started_at", "startedAt", "start_at") ?? "",
+    ended_at: pickString(s, "ended_at", "endedAt", "end_at") ?? null,
+    meters:
+      pickNumber(s, "meters", "distance_meters", "distanceMeters", "distance") ??
+      0,
+    date: pickString(s, "date"),
+    points,
+  };
+}
+
+function normalizeTrackResponse(raw: unknown): TrackResponse {
+  const root = asRecord(raw);
+  const tracks = pickArray(root, "tracks", "sessions", "segments", "routes").map(
+    normalizeTrackSession,
+  );
+  return {
+    user_id: pickString(root, "user_id", "userId") ?? "",
+    date: pickString(root, "date"),
+    session_count: pickNumber(root, "session_count", "sessionCount") ?? tracks.length,
+    total_meters: pickNumber(root, "total_meters", "totalMeters") ?? 0,
+    tracks,
+  };
+}
+
 export function getLocationTrack(
   q: { user_id?: string; date?: string } = {},
   signal?: AbortSignal,
 ): Promise<TrackResponse> {
-  return apiData<TrackResponse>("/api/v1/sales/location/track", {
+  return apiData<unknown>("/api/v1/sales/location/track", {
     query: { user_id: q.user_id, date: q.date },
     signal,
-  });
+  }).then(normalizeTrackResponse);
 }
 
 export function getLocationTrackRange(
   q: { from: string; to: string; user_id?: string },
   signal?: AbortSignal,
 ): Promise<TrackResponse> {
-  return apiData<TrackResponse>("/api/v1/sales/location/track/range", {
+  return apiData<unknown>("/api/v1/sales/location/track/range", {
     query: { from: q.from, to: q.to, user_id: q.user_id },
     signal,
-  });
+  }).then(normalizeTrackResponse);
 }

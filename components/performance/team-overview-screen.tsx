@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -506,8 +507,13 @@ function RepsAtRiskCard({
 }
 
 function RepAtRiskRow({ rep }: { rep: RepAtRisk }) {
+  const router = useRouter();
   return (
-    <div className="flex items-center gap-3 rounded-md bg-zinc-50 px-2 py-2 dark:bg-zinc-900/60">
+    <button
+      type="button"
+      onClick={() => router.push(`/sales/reps/${rep.user_id}`)}
+      className="flex w-full items-center gap-3 rounded-md bg-zinc-50 px-2 py-2 text-left transition-colors hover:bg-zinc-100 dark:bg-zinc-900/60 dark:hover:bg-zinc-800/60"
+    >
       <Avatar className={cn("h-7 w-7", avatarTone(rep.user_id))}>
         <AvatarFallback className="text-[10px] font-semibold">
           {getInitials(rep.name)}
@@ -525,7 +531,7 @@ function RepAtRiskRow({ rep }: { rep: RepAtRisk }) {
           {getInitials(rep.name)}
         </AvatarFallback>
       </Avatar>
-    </div>
+    </button>
   );
 }
 
@@ -687,8 +693,12 @@ function LeaderboardCard({ rows }: { rows: LeaderboardRow[] }) {
 }
 
 function LeaderboardRowItem({ row }: { row: LeaderboardRow }) {
+  const router = useRouter();
   return (
-    <li className="flex items-center gap-3 px-4 py-3">
+    <li
+      onClick={() => router.push(`/sales/reps/${row.user_id}`)}
+      className="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+    >
       <RankBadge rank={row.rank} />
       <Avatar className={cn("h-8 w-8", avatarTone(row.user_id))}>
         <AvatarFallback className="text-[10px] font-semibold">
@@ -944,13 +954,17 @@ function RosterCard({
 }
 
 function RosterRowItem({ row }: { row: RosterRow }) {
+  const router = useRouter();
   const target = row.target;
   const done = row.hospitals_done;
   const added = row.hospitals_added;
   const trend = trendForRoster(row);
 
   return (
-    <tr className="border-t border-zinc-100 dark:border-zinc-800">
+    <tr
+      onClick={() => router.push(`/sales/reps/${row.user_id}`)}
+      className="cursor-pointer border-t border-zinc-100 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/50"
+    >
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
           <Avatar className={cn("h-7 w-7", avatarTone(row.user_id))}>

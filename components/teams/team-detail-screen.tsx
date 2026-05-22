@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
@@ -38,7 +38,6 @@ import type { ApiSubadmin } from "@/lib/api/types";
 import { ResetPasswordModal } from "./reset-password-modal";
 import { ReplaceAdminModal } from "./replace-admin-modal";
 import { AddMemberStepperModal } from "./add-member-stepper-modal";
-import { MemberDetailSheet } from "./member-detail-sheet";
 import { TeamBroadcastModal } from "./team-broadcast-modal";
 
 interface TeamDetailScreenProps {
@@ -65,10 +64,10 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
   const subadminsQuery = useSubadmins({ limit: 200 });
   const subadminMutations = useSubadminMutations();
   const teamMutations = useTeamMutations();
+  const router = useRouter();
   const searchParams = useSearchParams();
-  // Deep-link from other screens (e.g. /sales/targets) auto-opens a member
-  // sheet via `?member=<id>`. We capture the param on mount so the sheet
-  // doesn't re-open if the user closes it but stays on the same URL.
+  // Legacy deep-link `?member=<id>` (e.g. from /sales/targets) now points at
+  // the full rep page — redirect rather than opening the retired sheet.
   const initialMemberId = useMemo(
     () => searchParams?.get("member") ?? null,
     [searchParams],
@@ -78,22 +77,10 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
   const [replaceAdminOpen, setReplaceAdminOpen] = useState(false);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [broadcastOpen, setBroadcastOpen] = useState(false);
-  // Store the open member's id, then look up the freshest record on each
-  // render so the sheet reflects post-mutation refetches without leaking
-  // stale state via setMemberDetail(member).
-  const [memberDetailId, setMemberDetailId] = useState<string | null>(
-    initialMemberId,
-  );
 
-  // If the URL param appears after first render (e.g. client-side nav into
-  // the page), still honor it. Only fires on initial param presence, not on
-  // every searchParams change, to avoid re-opening after manual close.
   useEffect(() => {
-    if (initialMemberId && memberDetailId === null) {
-      setMemberDetailId(initialMemberId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialMemberId]);
+    if (initialMemberId) router.replace(`/sales/reps/${initialMemberId}`);
+  }, [initialMemberId, router]);
 
   const team = useMemo(
     () => teamsQuery.data?.find((t) => t.id === teamId) ?? null,
@@ -101,13 +88,9 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
   );
   const subadmins = subadminsQuery.data?.sales_subadmins ?? [];
 
-  const memberDetail = useMemo(
-    () => subadmins.find((s) => s.id === memberDetailId) ?? null,
-    [subadmins, memberDetailId],
-  );
-
+  // Clicking a member row opens their full rep workspace.
   const openMemberDetail = (m: ApiSubadmin) => {
-    setMemberDetailId(m.id);
+    router.push(`/sales/reps/${m.id}`);
   };
 
   if (!auth.isLoaded) return <Skeleton />;
@@ -413,19 +396,6 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
         onOpenChange={setAddMemberOpen}
         teamId={teamId}
         onCreated={refetchAll}
-      />
-
-      <MemberDetailSheet
-        member={memberDetail}
-        open={memberDetailId !== null}
-        onOpenChange={(o) => {
-          if (!o) {
-            // Defer the id clear so the sheet content doesn't blank out
-            // mid-close animation.
-            window.setTimeout(() => setMemberDetailId(null), 200);
-          }
-        }}
-        onMutated={refetchAll}
       />
 
       <TeamBroadcastModal

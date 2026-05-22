@@ -25,3 +25,4 @@ export * as groups from "./sales-groups";
 export * as territories from "./sales-territories";
 export * as locations from "./sales-locations";
 export * as analytics from "./sales-analytics";
+export * as accelerator from "./sales-accelerator";

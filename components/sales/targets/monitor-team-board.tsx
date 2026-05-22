@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -334,6 +335,7 @@ function RepRowItem({
   onToggle: () => void;
 }) {
   const meta = STATUS_META[rep.overall_status];
+  const router = useRouter();
 
   return (
     <Card
@@ -342,58 +344,71 @@ function RepRowItem({
         expanded && "ring-1 ring-zinc-200 dark:ring-zinc-800",
       )}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-zinc-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-zinc-900/40"
-      >
-        <Avatar className="h-9 w-9 shrink-0">
-          <AvatarFallback
+      <div className="flex w-full items-center gap-4 px-4 py-3">
+        {/* Identity → opens the rep's full profile page. */}
+        <button
+          type="button"
+          onClick={() => router.push(`/sales/reps/${rep.user.id}`)}
+          className="flex min-w-0 items-center gap-4 rounded-md text-left transition-colors hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title={`Open ${rep.user.name}'s profile`}
+        >
+          <Avatar className="h-9 w-9 shrink-0">
+            <AvatarFallback
+              className={cn(
+                "text-[11px] font-semibold text-white",
+                colorForId(rep.user.id),
+              )}
+            >
+              {getInitials(rep.user.name)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 w-32 shrink-0">
+            <div className="truncate text-sm font-semibold">
+              {rep.user.name}
+            </div>
+            <div className="truncate text-[11px] text-zinc-500">
+              {rep.user.role || "Sales Rep"}
+            </div>
+          </div>
+        </button>
+
+        {/* Metrics + status → toggles the inline target detail. */}
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="flex min-w-0 flex-1 items-center gap-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <div className="hidden min-w-0 flex-1 grid-cols-4 gap-2 md:grid">
+            {metrics.map((m) => (
+              <InlineMetricBar
+                key={m.key}
+                label={m.label}
+                snapshot={rep.metrics[m.key]}
+              />
+            ))}
+          </div>
+
+          <span
             className={cn(
-              "text-[11px] font-semibold text-white",
-              colorForId(rep.user.id),
+              "ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium",
+              meta.pill,
             )}
           >
-            {getInitials(rep.user.name)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 w-32 shrink-0">
-          <div className="truncate text-sm font-semibold">{rep.user.name}</div>
-          <div className="truncate text-[11px] text-zinc-500">
-            {rep.user.role || "Sales Rep"}
-          </div>
-        </div>
-
-        <div className="hidden min-w-0 flex-1 grid-cols-4 gap-2 md:grid">
-          {metrics.map((m) => (
-            <InlineMetricBar
-              key={m.key}
-              label={m.label}
-              snapshot={rep.metrics[m.key]}
-            />
-          ))}
-        </div>
-
-        <span
-          className={cn(
-            "ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium",
-            meta.pill,
-          )}
-        >
-          {meta.label}
-        </span>
-        <span
-          aria-hidden
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-400"
-        >
-          {expanded ? (
-            <ChevronUp className="h-4 w-4" />
-          ) : (
-            <ChevronDown className="h-4 w-4" />
-          )}
-        </span>
-      </button>
+            {meta.label}
+          </span>
+          <span
+            aria-hidden
+            className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-zinc-400"
+          >
+            {expanded ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </span>
+        </button>
+      </div>
 
       {expanded ? <RepExpanded userId={rep.user.id} metrics={metrics} /> : null}
     </Card>

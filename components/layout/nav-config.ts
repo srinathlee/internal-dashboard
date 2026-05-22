@@ -5,17 +5,15 @@ import {
   Filter,
   Footprints,
   GitBranch,
-  LayoutGrid,
   Map,
-  MapPinned,
   Megaphone,
   Network,
   Radio,
+  Rocket,
   ScrollText,
   Settings,
   SlidersHorizontal,
   Target,
-  TrendingUp,
   Trophy,
   Users,
   type LucideIcon,
@@ -202,35 +200,20 @@ export const NAV_ITEMS: NavItem[] = [
     show: (a) => isOnSales(a) || a.user?.role === "super_admin",
   },
   {
-    label: "Groups",
-    href: "/sales/groups",
-    icon: LayoutGrid,
-    group: "salesTeam",
-    // Organise reps into zones / sub-teams. Admin-only.
-    show: (a) => isSalesAdminOrSuperAdmin(a),
-  },
-  {
-    label: "Territories",
-    href: "/sales/territories",
-    icon: MapPinned,
-    group: "salesTeam",
-    // Geographic polygon assignments. Admin-only.
-    show: (a) => isSalesAdminOrSuperAdmin(a),
-  },
-  {
-    label: "Win / loss",
-    href: "/sales/analytics",
-    icon: TrendingUp,
-    group: "salesTeam",
-    // Closed-deal analytics. Admin-only.
-    show: (a) => isSalesAdminOrSuperAdmin(a),
-  },
-  {
     label: "Broadcast",
     href: "/sales/broadcast",
     icon: Megaphone,
     group: "salesTeam",
     // Team-wide in-app announcements. Admin-only.
+    show: (a) => isSalesAdminOrSuperAdmin(a),
+  },
+  {
+    label: "Accelerator",
+    href: "/sales/accelerator",
+    icon: Rocket,
+    group: "salesTeam",
+    // 2-month accelerator program — batches, weekly review board, rep coaching.
+    // Admin-only management surface.
     show: (a) => isSalesAdminOrSuperAdmin(a),
   },
 
@@ -283,10 +266,8 @@ export const PAGE_TITLE_BY_PATH: Record<string, string> = {
   "/sales/my-targets": "My targets",
   "/sales/live-location": "Live location",
   "/sales/distance": "Distance",
-  "/sales/groups": "Groups",
-  "/sales/territories": "Territories",
-  "/sales/analytics": "Win / loss",
   "/sales/broadcast": "Broadcast",
+  "/sales/accelerator": "Accelerator program",
   "/team": "Team",
   "/teams": "Teams",
   "/audit-log": "Audit log",
