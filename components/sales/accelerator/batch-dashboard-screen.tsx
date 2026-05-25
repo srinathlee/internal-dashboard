@@ -2,23 +2,46 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ChevronRight,
   Flame,
   IndianRupee,
+  Loader2,
   MapPin,
   Mic,
+  MoreHorizontal,
   Plus,
+  Search,
   Star,
+  Trash2,
   TrendingUp,
+  UserCircle,
   Users,
   X,
   Zap,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Sheet,
   SheetContent,
@@ -34,14 +57,17 @@ import {
   useAcpBatch,
   useAcpBatchStats,
   useAcpMembers,
+  useAcpMutations,
   useAcpWeekView,
 } from "@/lib/hooks/use-accelerator";
 import type {
   AcpMember,
   AcpReview,
   AcpWeekDay,
+  AcpWeekDayRep,
 } from "@/lib/api/sales-accelerator";
 import { REVIEW_KEYS } from "@/lib/api/sales-accelerator";
+import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 
 import {
@@ -52,12 +78,13 @@ import {
   reviewBar,
   SectionLabel,
   StatCard,
-  TAG_META,
   WEEK_CONFIG,
   weekTitle,
 } from "./acp-shared";
 import { AddMemberModal } from "./add-member-modal";
-import { RepDetailPanel } from "./rep-detail-panel";
+
+/** Max reps shown in the Attention / Fire list (lowest revenue first). */
+const FIRE_LIST_SIZE = 5;
 
 const WEEK_SUBTITLE: Record<number, string> = {
   1: "Training + field observation",
@@ -70,24 +97,65 @@ const WEEK_SUBTITLE: Record<number, string> = {
   8: "Final push",
 };
 
+
 export function BatchDashboardScreen({ batchId }: { batchId: string }) {
   const auth = useAuth();
+  const router = useRouter();
   const batch = useAcpBatch(batchId);
   const stats = useAcpBatchStats(batchId);
   const members = useAcpMembers(batchId);
+  const { deleteMember } = useAcpMutations();
 
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   // Training days have no per-day rep logs, so clicking one opens a roster
   // sidebar of the week's members instead of the field-day detail table.
   const [rosterDay, setRosterDay] = useState<number | null>(null);
-  const [selectedRepId, setSelectedRepId] = useState<string | null>(null);
+  // Which review-summary card's roster sidebar is open, if any.
+  const [reviewSheet, setReviewSheet] = useState<AcpReview | null>(null);
   const [showAddMember, setShowAddMember] = useState(false);
-  // Lifted review state: "repId:date" -> review. Keeps the week summary cards
-  // and day table in sync the instant a review is changed in the rep panel.
-  const [reviewOverrides, setReviewOverrides] = useState<
-    Record<string, AcpReview>
-  >({});
+  // All-members roster filter: which status pill is active + the search query.
+  const [memberFilter, setMemberFilter] = useState<"all" | "active" | "fired">(
+    "all",
+  );
+  const [memberQuery, setMemberQuery] = useState("");
+  // The rep an admin is about to un-enroll, shown in the confirm dialog.
+  const [removeTarget, setRemoveTarget] = useState<AcpMember | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  // Un-enroll a rep from the program (admin-only). Keeps their sales login and
+  // pipeline leads; removes only their ACP membership/logs/sprints. A repeat
+  // delete returns 404, which we treat as success (idempotent). On success we
+  // refetch the roster + stats so the row and header counts drop the rep.
+  const handleRemoveMember = async () => {
+    const target = removeTarget;
+    if (!target) return;
+    setRemoving(true);
+    try {
+      await deleteMember(target.id);
+      toast.success(`${target.name} removed from program`, {
+        description: "Their sales account and leads were preserved.",
+      });
+      setRemoveTarget(null);
+      members.refetch();
+      stats.refetch();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        toast.success(`${target.name} removed from program`);
+        setRemoveTarget(null);
+        members.refetch();
+        stats.refetch();
+      } else {
+        toast.error("Couldn't remove rep", { description: errorMessage(err) });
+      }
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  // Clicking a rep opens their full profile page (replaces the old side-panel).
+  const openRep = (repId: string) =>
+    router.push(`/sales/accelerator/${batchId}/${repId}`);
 
   const weekView = useAcpWeekView(batchId, selectedWeek);
 
@@ -102,31 +170,16 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
     return map;
   }, [memberList]);
 
-  // Most recent review for a rep. A review changed this session (an override)
-  // always reflects the admin's latest action, so the newest override wins;
-  // otherwise fall back to the server's `latest_review`.
-  const latestReviewFor = useMemo(() => {
-    return (member: AcpMember): AcpReview | null => {
-      let bestDate: string | null = null;
-      let bestReview: AcpReview | null = null;
-      const prefix = `${member.id}:`;
-      for (const [key, val] of Object.entries(reviewOverrides)) {
-        if (!key.startsWith(prefix)) continue;
-        const date = key.slice(prefix.length);
-        if (!bestDate || date >= bestDate) {
-          bestDate = date;
-          bestReview = val;
-        }
-      }
-      return bestReview ?? member.current_review ?? null;
-    };
-  }, [reviewOverrides]);
+  // Most recent review for a rep, from the server's `current_review`.
+  const latestReviewFor = useMemo(
+    () => (member: AcpMember): AcpReview | null => member.current_review ?? null,
+    [],
+  );
 
   const reviewCounts = useMemo(() => {
     const counts: Record<AcpReview, number> = {
       working_fine: 0,
       observation: 0,
-      needs_improvement: 0,
       retrain: 0,
     };
     for (const m of activeMembers) {
@@ -175,16 +228,21 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
     [activeMembers],
   );
 
+  // Attention / Fire list: the worst-performing *active* reps — the ones
+  // heading toward being fired. Ranked by total revenue ascending (lowest
+  // first) and capped at FIRE_LIST_SIZE. Already-fired members are excluded
+  // (they live in the All-members roster, not here).
   const fireList = useMemo(
     () =>
-      memberList.filter(
-        (m) =>
-          m.tag === "fired" ||
-          m.tag === "firing_zone" ||
-          m.tag === "at_risk" ||
-          m.tag === "close_monitoring",
-      ),
-    [memberList],
+      [...activeMembers]
+        .map((m) => ({
+          id: m.id,
+          name: m.name,
+          total: m.sprint_revenue + m.subscription_revenue,
+        }))
+        .sort((a, b) => a.total - b.total)
+        .slice(0, FIRE_LIST_SIZE),
+    [activeMembers],
   );
 
   // Roster breakdown for the All-members header: a member is "fired" when the
@@ -197,8 +255,27 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
     return { total: memberList.length, active: memberList.length - fired, fired };
   }, [memberList]);
 
-  const onReviewChange = (repId: string, date: string, review: AcpReview) =>
-    setReviewOverrides((prev) => ({ ...prev, [`${repId}:${date}`]: review }));
+  // Roster after applying the active status pill + search box. The list's
+  // numbering and the "showing N" reflect this filtered view, not the full
+  // roster (the pill badges keep showing the full totals).
+  const filteredMembers = useMemo(() => {
+    const q = memberQuery.trim().toLowerCase();
+    return memberList.filter((m) => {
+      const fired = m.status === "inactive" || m.tag === "fired";
+      if (memberFilter === "active" && fired) return false;
+      if (memberFilter === "fired" && !fired) return false;
+      if (
+        q &&
+        !m.name.toLowerCase().includes(q) &&
+        !m.email.toLowerCase().includes(q)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [memberList, memberFilter, memberQuery]);
+
+  const weekDays = useMemo(() => weekView.data?.days ?? [], [weekView.data]);
 
   const selectWeek = (n: number) => {
     setSelectedWeek((prev) => (prev === n ? null : n));
@@ -232,13 +309,65 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
   const subRev =
     stats.data?.subscription_revenue ??
     activeMembers.reduce((n, m) => n + m.subscription_revenue, 0);
-  const activeCount = stats.data?.active_members ?? activeMembers.length;
-  const totalCount = stats.data?.total_members ?? memberList.length;
 
   const selectedDayData =
     selectedDay != null
-      ? weekView.data?.days.find((d) => d.day === selectedDay) ?? null
+      ? weekDays.find((d) => d.day === selectedDay) ?? null
       : null;
+
+  // Reps shown in the open field-day table: members the backend logged for that
+  // day, plus any cohort members currently positioned on it who haven't logged
+  // yet (as a zero-state row) — so the table matches the tile count instead of
+  // reading "no reps logged" for a cohort that has only just reached this day.
+  const selectedDayReps: AcpWeekDayRep[] = (() => {
+    if (!selectedDayData || selectedDayData.activity_type === "training") {
+      return [];
+    }
+    const reps = [...selectedDayData.reps];
+    const seen = new Set(reps.map((r) => r.member_id));
+    for (const m of membersByDayInWeek.get(selectedDayData.day) ?? []) {
+      if (seen.has(m.id)) continue;
+      reps.push({
+        member_id: m.id,
+        name: m.name,
+        tag: m.tag,
+        review: latestReviewFor(m),
+        sprint_revenue: 0,
+        has_audio: false,
+        visited_count: 0,
+        sprint_accepted_count: 0,
+      });
+    }
+    return reps;
+  })();
+
+  // Active members whose latest review matches the open review card.
+  const reviewSheetMembers = reviewSheet
+    ? activeMembers.filter((m) => latestReviewFor(m) === reviewSheet)
+    : [];
+
+  // Status filter pills for the All-members card — badge counts stay on the
+  // full roster so they read as totals, not the post-search subset.
+  const memberFilters: {
+    key: "all" | "active" | "fired";
+    label: string;
+    count: number;
+    dot?: string;
+  }[] = [
+    { key: "all", label: "All", count: memberStats.total },
+    {
+      key: "active",
+      label: "Active",
+      count: memberStats.active,
+      dot: "bg-emerald-500",
+    },
+    {
+      key: "fired",
+      label: "Fired",
+      count: memberStats.fired,
+      dot: "bg-rose-500",
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -275,11 +404,38 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
 
       {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          icon={Users}
-          label="Members"
-          value={`${activeCount}/${totalCount}`}
-        />
+        <Card className="p-4 sm:p-5">
+          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-zinc-500">
+            <Users className="h-4 w-4 text-zinc-400" aria-hidden />
+            Members
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div>
+              <div className="text-xl font-bold leading-none tabular-nums">
+                {memberStats.total}
+              </div>
+              <div className="mt-1 text-[10px] uppercase tracking-wider text-zinc-400">
+                Total
+              </div>
+            </div>
+            <div>
+              <div className="text-xl font-bold leading-none tabular-nums text-emerald-600 dark:text-emerald-400">
+                {memberStats.active}
+              </div>
+              <div className="mt-1 text-[10px] uppercase tracking-wider text-zinc-400">
+                Active
+              </div>
+            </div>
+            <div>
+              <div className="text-xl font-bold leading-none tabular-nums text-rose-600 dark:text-rose-400">
+                {memberStats.fired}
+              </div>
+              <div className="mt-1 text-[10px] uppercase tracking-wider text-zinc-400">
+                Fired
+              </div>
+            </div>
+          </div>
+        </Card>
         <StatCard
           icon={Zap}
           label="Sprints"
@@ -319,7 +475,7 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
                 <li key={p.id}>
                   <button
                     type="button"
-                    onClick={() => setSelectedRepId(p.id)}
+                    onClick={() => openRep(p.id)}
                     className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/60"
                   >
                     <span className="w-4 text-sm font-semibold text-zinc-400 tabular-nums">
@@ -348,44 +504,38 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
             <Flame className="h-4 w-4 text-rose-500" aria-hidden />
             <span className="text-sm font-semibold">Attention / Fire list</span>
           </div>
-          {fireList.length === 0 ? (
+          {members.isLoading && fireList.length === 0 ? (
+            <div className="p-6 text-center text-sm text-zinc-500">Loading…</div>
+          ) : fireList.length === 0 ? (
             <div className="p-6 text-center text-sm text-zinc-500">
-              Everyone&apos;s on track. 🎉
+              No active members yet.
             </div>
           ) : (
             <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {fireList.map((m) => {
-                const meta = TAG_META[m.tag];
-                return (
-                  <li key={m.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRepId(m.id)}
-                      className={cn(
-                        "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/60",
-                        meta.rowTint,
-                      )}
-                    >
-                      <Avatar className="h-7 w-7">
-                        <AvatarFallback className="text-[10px]">
-                          {getInitials(m.name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {m.name}
-                      </span>
-                      <span
-                        className={cn(
-                          "rounded-full px-2 py-0.5 text-[11px] font-medium",
-                          meta.badge,
-                        )}
-                      >
-                        {meta.label}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
+              {fireList.map((p, i) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    onClick={() => openRep(p.id)}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/60"
+                  >
+                    <span className="w-4 text-sm font-semibold text-zinc-400 tabular-nums">
+                      {i + 1}
+                    </span>
+                    <Avatar className="h-7 w-7">
+                      <AvatarFallback className="text-[10px]">
+                        {getInitials(p.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {p.name}
+                    </span>
+                    <span className="text-sm font-semibold tabular-nums text-rose-600 dark:text-rose-400">
+                      {acpFmt(p.total)}
+                    </span>
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
         </Card>
@@ -429,23 +579,84 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
             {memberStats.total}
           </span>
         </div>
+
+        {/* Filter pills + search */}
+        <div className="flex flex-col gap-3 border-b border-zinc-100 px-4 py-3 dark:border-zinc-800 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            {memberFilters.map((f) => {
+              const active = memberFilter === f.key;
+              return (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setMemberFilter(f.key)}
+                  aria-pressed={active}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+                    active
+                      ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300"
+                      : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800/60",
+                  )}
+                >
+                  {f.dot ? (
+                    <span className={cn("h-1.5 w-1.5 rounded-full", f.dot)} />
+                  ) : null}
+                  {f.label}
+                  <span
+                    className={cn(
+                      "rounded-md px-1.5 py-0.5 text-xs tabular-nums",
+                      active
+                        ? "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-200"
+                        : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
+                    )}
+                  >
+                    {f.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="relative w-full sm:w-64">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400"
+              aria-hidden
+            />
+            <Input
+              type="search"
+              value={memberQuery}
+              onChange={(e) => setMemberQuery(e.target.value)}
+              placeholder="Search members"
+              aria-label="Search members"
+              className="pl-9"
+            />
+          </div>
+        </div>
+
         {members.isLoading && memberList.length === 0 ? (
           <div className="p-6 text-center text-sm text-zinc-500">Loading…</div>
         ) : memberList.length === 0 ? (
           <div className="p-6 text-center text-sm text-zinc-500">
             No members yet.
           </div>
+        ) : filteredMembers.length === 0 ? (
+          <div className="p-6 text-center text-sm text-zinc-500">
+            No members match{" "}
+            {memberQuery.trim() ? `“${memberQuery.trim()}”` : "this filter"}.
+          </div>
         ) : (
           <ul className="max-h-96 divide-y divide-zinc-100 overflow-y-auto dark:divide-zinc-800">
-            {memberList.map((m, i) => {
+            {filteredMembers.map((m, i) => {
               const fired = m.status === "inactive" || m.tag === "fired";
               return (
-                <li key={m.id}>
+                <li
+                  key={m.id}
+                  className="group flex items-center pr-2 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/60"
+                >
                   <button
                     type="button"
-                    onClick={() => setSelectedRepId(m.id)}
+                    onClick={() => openRep(m.id)}
                     className={cn(
-                      "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/60",
+                      "flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left",
                       fired && "opacity-60",
                     )}
                   >
@@ -489,6 +700,33 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
                       </span>
                     )}
                   </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Actions for ${m.name}`}
+                        className="ml-1 shrink-0 rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-200/70 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-zinc-200/70 dark:hover:bg-zinc-700/60 dark:hover:text-zinc-200 dark:data-[state=open]:bg-zinc-700/60"
+                      >
+                        <MoreHorizontal className="h-4 w-4" aria-hidden />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => openRep(m.id)}>
+                        <UserCircle className="text-zinc-500" aria-hidden />
+                        Open profile
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        // Defer so the menu finishes closing before the confirm
+                        // dialog opens (avoids a Radix overlay focus clash).
+                        onSelect={() => setTimeout(() => setRemoveTarget(m), 0)}
+                        className="text-rose-600 focus:bg-rose-50 focus:text-rose-700 dark:text-rose-400 dark:focus:bg-rose-950/40 dark:focus:text-rose-300"
+                      >
+                        <Trash2 aria-hidden />
+                        Remove from program
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </li>
               );
             })}
@@ -545,17 +783,19 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
             </div>
 
             {/* Review summary cards */}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-3 gap-3">
               {REVIEW_KEYS.map((key) => {
                 const meta = REVIEW_META[key];
                 const Icon = meta.icon;
                 const count = reviewCounts[key];
                 const lit = count > 0;
                 return (
-                  <div
+                  <button
                     key={key}
+                    type="button"
+                    onClick={() => setReviewSheet(key)}
                     className={cn(
-                      "rounded-xl border p-4 text-center transition-colors",
+                      "rounded-xl border p-4 text-center transition-colors hover:border-zinc-300 dark:hover:border-zinc-700",
                       lit
                         ? meta.card
                         : "border-zinc-200 bg-white text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900",
@@ -568,7 +808,7 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
                     <div className="mt-1 text-[10px] font-semibold uppercase tracking-wider">
                       {meta.label}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -582,13 +822,13 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                {(weekView.data?.days ?? []).map((d) => {
+                {weekDays.map((d) => {
                   const isTraining = d.activity_type === "training";
                   return (
                     <DayTile
                       key={d.day}
                       day={d}
-                      trainingCount={(membersByDayInWeek.get(d.day) ?? []).length}
+                      memberCount={(membersByDayInWeek.get(d.day) ?? []).length}
                       selected={
                         isTraining
                           ? rosterDay === d.day
@@ -615,8 +855,8 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
                   <span className="text-sm font-semibold">
                     Day {selectedDayData.day}{" "}
                     <span className="font-normal text-zinc-500">
-                      {selectedDayData.reps.length} rep
-                      {selectedDayData.reps.length === 1 ? "" : "s"}
+                      {selectedDayReps.length} rep
+                      {selectedDayReps.length === 1 ? "" : "s"}
                     </span>
                   </span>
                   <button
@@ -629,7 +869,7 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
                   </button>
                 </div>
 
-                {selectedDayData.reps.length === 0 ? (
+                {selectedDayReps.length === 0 ? (
                   <div className="p-8 text-center text-sm text-zinc-500">
                     No reps logged this day.
                   </div>
@@ -642,7 +882,7 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
                       <span className="text-right">Audio</span>
                     </div>
                     <div className="max-h-80 overflow-y-auto">
-                      {selectedDayData.reps.map((rep) => {
+                      {selectedDayReps.map((rep) => {
                         const member = memberById.get(rep.member_id);
                         const review = member
                           ? latestReviewFor(member)
@@ -652,7 +892,7 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
                           <button
                             key={rep.member_id}
                             type="button"
-                            onClick={() => setSelectedRepId(rep.member_id)}
+                            onClick={() => openRep(rep.member_id)}
                             className="grid w-full grid-cols-[1fr_auto_auto_auto] items-center gap-3 border-b border-zinc-100 px-4 py-2.5 text-left transition-colors last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/60"
                           >
                             <span className="flex min-w-0 items-center gap-2.5">
@@ -737,22 +977,79 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
         }}
       />
 
-      <RepDetailPanel
-        memberId={selectedRepId}
-        onClose={() => setSelectedRepId(null)}
-        onReviewChange={onReviewChange}
-        onMemberChanged={() => {
-          members.refetch();
-          stats.refetch();
+      {/* Confirm un-enrolling a rep from the program. */}
+      <Dialog
+        open={removeTarget != null}
+        onOpenChange={(o) => {
+          if (!o && !removing) setRemoveTarget(null);
         }}
-      />
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+              <Trash2 className="h-4 w-4" aria-hidden />
+              Remove from program
+            </DialogTitle>
+            <DialogDescription>
+              Remove{" "}
+              <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                {removeTarget?.name}
+              </span>{" "}
+              from the Accelerator? Their sales account and pipeline leads are
+              preserved — only their ACP membership, daily logs and sprints are
+              removed. This can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRemoveTarget(null)}
+              disabled={removing}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleRemoveMember}
+              disabled={removing}
+            >
+              {removing ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Trash2 className="h-4 w-4" aria-hidden />
+              )}
+              Remove from program
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <DayRosterSheet
-        day={rosterDay}
+      <RosterSheet
+        open={rosterDay != null}
+        title={`Day ${rosterDay} · Training`}
+        subtitle={(() => {
+          const n =
+            rosterDay != null ? (membersByDayInWeek.get(rosterDay) ?? []).length : 0;
+          return `${n} member${n === 1 ? "" : "s"} in training`;
+        })()}
+        emptyText="No members on this day yet."
         members={
           rosterDay != null ? (membersByDayInWeek.get(rosterDay) ?? []) : []
         }
         onClose={() => setRosterDay(null)}
+      />
+
+      <RosterSheet
+        open={reviewSheet != null}
+        title={reviewSheet ? REVIEW_META[reviewSheet].label : ""}
+        subtitle={`${reviewSheetMembers.length} rep${
+          reviewSheetMembers.length === 1 ? "" : "s"
+        }`}
+        emptyText="No reps with this review yet."
+        members={reviewSheetMembers}
+        onClose={() => setReviewSheet(null)}
       />
     </div>
   );
@@ -770,35 +1067,39 @@ function fmtJoinDate(iso: string): string {
 }
 
 /**
- * Training-day roster — a minimal right sidebar listing the week's members as
- * rows (index · name · joining date). Training days carry no per-rep activity,
- * so this is intentionally just the cohort, not the field-day detail table.
+ * Minimal roster sidebar — lists members as rows (index · name · joining
+ * date) with no extra detail. Reused for the training-day cohort and the
+ * review-summary breakdown.
  */
-function DayRosterSheet({
-  day,
+function RosterSheet({
+  open,
+  title,
+  subtitle,
+  emptyText,
   members,
   onClose,
 }: {
-  day: number | null;
+  open: boolean;
+  title: string;
+  subtitle: string;
+  emptyText: string;
   members: AcpMember[];
   onClose: () => void;
 }) {
   return (
-    <Sheet open={day != null} onOpenChange={(o) => !o && onClose()}>
+    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
         side="right"
         className="flex w-full flex-col gap-0 p-0 sm:w-[420px] sm:max-w-none"
       >
         <SheetHeader>
-          <SheetTitle>Day {day} · Training</SheetTitle>
-          <p className="text-sm text-zinc-500">
-            {members.length} member{members.length === 1 ? "" : "s"} in training
-          </p>
+          <SheetTitle>{title}</SheetTitle>
+          <p className="text-sm text-zinc-500">{subtitle}</p>
         </SheetHeader>
 
         {members.length === 0 ? (
           <div className="p-8 text-center text-sm text-zinc-500">
-            No members on this day yet.
+            {emptyText}
           </div>
         ) : (
           <>
@@ -842,12 +1143,16 @@ function DayRosterSheet({
 function DayTile({
   day,
   selected,
-  trainingCount,
+  memberCount,
   onClick,
 }: {
   day: AcpWeekDay;
   selected: boolean;
-  trainingCount: number;
+  /** Active members whose current day-in-week lands on this tile (cohort
+   *  position today). Used on every day type so the per-day counts sum to the
+   *  week button's count — a field day where the cohort currently sits reads
+   *  the cohort size, not just reps who have already logged field activity. */
+  memberCount: number;
   onClick: () => void;
 }) {
   const meta = ACTIVITY_META[day.activity_type];
@@ -877,7 +1182,7 @@ function DayTile({
           Training day
         </div>
         <div className="mt-1 text-2xl font-bold tabular-nums text-violet-600 dark:text-violet-400">
-          {trainingCount}
+          {memberCount}
         </div>
         <div className="text-[10px] text-zinc-400">members</div>
       </button>
@@ -900,7 +1205,7 @@ function DayTile({
         {meta.label}
       </div>
       <div className="mt-1 text-2xl font-bold tabular-nums">
-        {day.reps.length}
+        {memberCount}
       </div>
       <div className="text-[10px] text-zinc-400">reps</div>
     </button>

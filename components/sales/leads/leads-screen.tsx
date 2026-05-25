@@ -16,7 +16,11 @@ import {
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
-import { canSeeSalesTabs } from "@/lib/access";
+import {
+  canSeeSalesTabs,
+  isSalesAdminOrSuperAdmin,
+  isSalesMember,
+} from "@/lib/access";
 import {
   LEAD_SOURCE_LABEL,
   LEAD_STAGE_LABEL,
@@ -72,7 +76,16 @@ export function LeadsScreen() {
   const [newLeadOpen, setNewLeadOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const canDeleteLeads = auth.user?.role === "super_admin";
+  // Admins / super admins may delete any lead; a sales member (rep) may delete
+  // only leads they own. The server enforces ownership too — this gate is UX
+  // only. See docs/backend-acp-delete-rep-and-lead.md (Part B).
+  const canDeleteLead = (lead: Lead): boolean => {
+    if (isSalesAdminOrSuperAdmin(auth)) return true;
+    if (isSalesMember(auth)) return lead.ownerId === auth.user?.id;
+    return false;
+  };
+  // Whether any lead is deletable for this viewer — gates wiring the handler.
+  const canDeleteAny = isSalesAdminOrSuperAdmin(auth) || isSalesMember(auth);
 
   const filtered = useMemo(() => {
     // Server-side search/stage already applied; this just guards against any
@@ -137,9 +150,9 @@ export function LeadsScreen() {
   };
 
   const handleDeleteClick = async (lead: Lead) => {
-    if (!canDeleteLeads) return;
+    if (!canDeleteLead(lead)) return;
     const confirmed = window.confirm(
-      `Delete lead "${lead.clinicName}"? This permanently removes the lead and its history. This action cannot be undone.`,
+      `Delete lead "${lead.clinicName}"? This permanently removes the lead, its history and any linked sprint, and updates the rep's lead count. This action cannot be undone.`,
     );
     if (!confirmed) return;
 
@@ -158,6 +171,9 @@ export function LeadsScreen() {
         setEditingId(null);
       }
       toast.success(`"${lead.clinicName}" deleted`);
+      // Refresh so the rep's lead count / sprint roll-ups reflect the removal.
+      // (A lead with a linked sprint is deleted entirely — the backend cascades
+      // the sprint and updates the counts; deletion is never blocked.)
       void leadsQuery.refetch();
     } catch (err) {
       toast.error("Couldn't delete lead", {
@@ -363,7 +379,8 @@ export function LeadsScreen() {
           selectedId={selectedId}
           onRowClick={handleRowClick}
           onEditClick={handleEditClick}
-          onDeleteClick={canDeleteLeads ? handleDeleteClick : undefined}
+          onDeleteClick={canDeleteAny ? handleDeleteClick : undefined}
+          canDeleteLead={canDeleteLead}
           deletingId={deletingId}
         />
       )}

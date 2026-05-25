@@ -18,11 +18,7 @@ import { ApiError, apiData } from "./client";
 // Model (internal, component-facing)
 // ---------------------------------------------------------------------------
 
-export type AcpReview =
-  | "working_fine"
-  | "observation"
-  | "needs_improvement"
-  | "retrain";
+export type AcpReview = "working_fine" | "observation" | "retrain";
 
 export type AcpTag =
   | "active"
@@ -84,6 +80,14 @@ export interface AcpMember {
   revenue_target: number;
   /** Month-1 sprint progress 0–100 (sprint_rev / sprint_target). */
   month1_pct: number;
+  /**
+   * Total pipeline leads owned by this rep across all stages — drives the
+   * "N leads" count, which goes up the moment a lead is added (independent of
+   * sprint ₹, which only counts Sprint-started leads). Undefined when the
+   * backend doesn't send it yet (see docs/backend-fix-acp-rep-lead-count.md);
+   * the UI then falls back to showing the sprint total.
+   */
+  lead_count?: number;
   /** Latest admin review for the rep, or null. */
   current_review: AcpReview | null;
   /** Server-computed program position (preferred over client week calc). */
@@ -93,8 +97,10 @@ export interface AcpMember {
   batch_id: string;
   batch_name?: string;
   status: "active" | "inactive";
-  /** Mock-only freeform note; absent from the live API. */
+  /** Private admin note about the rep (admin-only). Empty/absent when unset. */
   note?: string;
+  /** ISO timestamp of the last note edit, when the server reports it. */
+  note_updated_at?: string;
 }
 
 export interface AcpDailyLog {
@@ -179,6 +185,16 @@ export interface AcpSprint {
   confirmed_at?: string | null;
   plan_name?: string | null;
   plan_value?: number | null;
+  /**
+   * The pipeline lead this sprint originated from, when it was created by
+   * moving a lead into the "Sprint started" stage. Lets the sprint card link
+   * to the lead's detail sheet. Null for manually-created sprints.
+   */
+  lead_id?: string | null;
+  /** Basic lead details for the sprint card (present when lead-sourced). */
+  doctor_name?: string | null;
+  phone?: string | null;
+  city?: string | null;
 }
 
 export interface AcpSprintList {
@@ -202,7 +218,6 @@ export interface AcpMessage {
 const REVIEW_SET = new Set<AcpReview>([
   "working_fine",
   "observation",
-  "needs_improvement",
   "retrain",
 ]);
 const TAG_SET = new Set<AcpTag>([
@@ -230,6 +245,16 @@ function normTag(v: unknown): AcpTag {
   return typeof v === "string" && TAG_SET.has(v as AcpTag)
     ? (v as AcpTag)
     : "active";
+}
+/**
+ * Normalize the backend's login status. The server may send "ACTIVE"/"INACTIVE"
+ * (tag-sync response) or "active"/"inactive". Returns null for anything else so
+ * callers can fall back to deriving status from the tag.
+ */
+function normStatus(v: unknown): "active" | "inactive" | null {
+  if (typeof v !== "string") return null;
+  const s = v.toLowerCase();
+  return s === "active" || s === "inactive" ? s : null;
 }
 function normActivity(v: unknown): AcpActivity {
   return typeof v === "string" && ACTIVITY_SET.has(v as AcpActivity)
@@ -308,6 +333,16 @@ function normalizeMember(
       sprintTarget > 0
         ? Math.min(100, Math.round((sprintRev / sprintTarget) * 100))
         : 0,
+    // Total leads owned by the rep — only set when the backend sends it, so the
+    // UI can tell "0 leads" apart from "field not implemented yet".
+    lead_count:
+      raw.lead_count != null
+        ? num(raw.lead_count)
+        : raw.leads_count != null
+          ? num(raw.leads_count)
+          : raw.total_leads != null
+            ? num(raw.total_leads)
+            : undefined,
     current_review: normReview(raw.latest_review ?? raw.current_review),
     current_week:
       raw.current_week != null ? num(raw.current_week) : undefined,
@@ -317,8 +352,12 @@ function normalizeMember(
     batch_id: String(raw.batch_id ?? batchId ?? ""),
     batch_name:
       typeof raw.batch_name === "string" ? raw.batch_name : undefined,
-    status: tag === "fired" ? "inactive" : "active",
+    // Prefer the server's authoritative login status; fall back to deriving it
+    // from the tag for older payloads that don't include `status`.
+    status: normStatus(raw.status) ?? (tag === "fired" ? "inactive" : "active"),
     note: typeof raw.note === "string" ? raw.note : undefined,
+    note_updated_at:
+      typeof raw.note_updated_at === "string" ? raw.note_updated_at : undefined,
   };
 }
 
@@ -355,7 +394,7 @@ function normalizeDailyLog(raw: Record<string, unknown>): AcpDailyLog {
 }
 
 function emptyReviewCounts(): Record<AcpReview, number> {
-  return { working_fine: 0, observation: 0, needs_improvement: 0, retrain: 0 };
+  return { working_fine: 0, observation: 0, retrain: 0 };
 }
 
 function normalizeReviewCounts(v: unknown): Record<AcpReview, number> {
@@ -441,7 +480,7 @@ function normalizeWeekView(raw: Record<string, unknown>): AcpWeekView {
 // Fallback plumbing
 // ---------------------------------------------------------------------------
 
-const ACP_MOCK_FALLBACK = true;
+const ACP_MOCK_FALLBACK = false;
 const BASE = "/api/v1/sales/acp";
 
 /** Server genuinely doesn't have these routes (vs. a real validation error). */
@@ -514,6 +553,26 @@ export function deleteAcpBatch(batchId: string): Promise<void> {
   return withFallback(
     () =>
       apiData<void>(`${BASE}/batches/${batchId}`, { method: "DELETE" }).then(
+        () => undefined,
+      ),
+    () => undefined,
+  );
+}
+
+/**
+ * Remove a rep from the Accelerator program (admin-only).
+ * `DELETE /acp/members/:memberId` — un-enrolls the rep: their ACP membership,
+ * daily logs, sprints and coaching messages are removed, but their sales
+ * `users` login and pipeline leads are kept intact (they stay a normal sales
+ * rep). This is distinct from "Fire" (`setAcpMemberTag(id, "fired")`), which
+ * only disables login but keeps them in the batch. A second delete of the same
+ * id returns 404, which the caller treats as success (idempotent). See
+ * docs/backend-acp-delete-rep-and-lead.md.
+ */
+export function deleteAcpMember(memberId: string): Promise<void> {
+  return withFallback(
+    () =>
+      apiData<void>(`${BASE}/members/${memberId}`, { method: "DELETE" }).then(
         () => undefined,
       ),
     () => undefined,
@@ -615,17 +674,88 @@ export function setAcpReview(
   );
 }
 
+export interface AcpTagResult {
+  success: true;
+  tag: AcpTag;
+  /** Login status the backend set as a result of the tag (only `fired` → inactive). */
+  status: "active" | "inactive";
+}
+
+/**
+ * Set a member's tag. The backend keeps `users.status` in sync with the tag
+ * (only `fired` deactivates the login) and echoes the resulting `status`, so
+ * the UI can reflect login state immediately. We fall back to deriving status
+ * from the tag if an older backend omits it.
+ */
 export function setAcpMemberTag(
   memberId: string,
   tag: AcpTag,
-): Promise<{ success: true }> {
+): Promise<AcpTagResult> {
   return withFallback(
     () =>
       apiData<Raw>(`${BASE}/members/${memberId}/tag`, {
         method: "PATCH",
         body: { tag },
-      }).then(() => ({ success: true as const })),
+      }).then((r) => {
+        const resolvedTag = normTag(r.tag ?? tag);
+        return {
+          success: true as const,
+          tag: resolvedTag,
+          status:
+            normStatus(r.status) ??
+            (resolvedTag === "fired" ? "inactive" : "active"),
+        };
+      }),
     () => mock.setTag(memberId, tag),
+  );
+}
+
+export interface AcpNoteResult {
+  note: string;
+  note_updated_at?: string;
+}
+
+/**
+ * Save (or clear, with `""`) the private admin note on a member.
+ * `PATCH /acp/members/:memberId/note` — admin-only. Returns the persisted
+ * value + edit timestamp so the UI can confirm and show "last saved".
+ */
+export function setAcpMemberNote(
+  memberId: string,
+  note: string,
+): Promise<AcpNoteResult> {
+  return withFallback(
+    () =>
+      apiData<Raw>(`${BASE}/members/${memberId}/note`, {
+        method: "PATCH",
+        body: { note },
+      }).then((r) => ({
+        note: typeof r.note === "string" ? r.note : note,
+        note_updated_at:
+          typeof r.note_updated_at === "string" ? r.note_updated_at : undefined,
+      })),
+    () => mock.setNote(memberId, note),
+  );
+}
+
+/**
+ * Admin-set a new password for a rep's login — no current password required
+ * (the admin is resetting it on the rep's behalf). `PATCH
+ * /acp/members/:memberId/password`, admin-only. The backend resolves the
+ * `acp_member` → its `users` row and stores the new hash; the response never
+ * echoes the password back. See docs/backend-fix-acp-member-password.md.
+ */
+export function setAcpMemberPassword(
+  memberId: string,
+  password: string,
+): Promise<{ success: true }> {
+  return withFallback(
+    () =>
+      apiData<Raw>(`${BASE}/members/${memberId}/password`, {
+        method: "PATCH",
+        body: { new_password: password },
+      }).then(() => ({ success: true as const })),
+    () => mock.setPassword(),
   );
 }
 
@@ -643,13 +773,112 @@ export function sendAcpMessage(
   );
 }
 
+const SPRINT_STATUS_SET = new Set<AcpSprint["status"]>([
+  "active",
+  "confirmed",
+  "converted",
+  "refunded",
+]);
+
+function str(v: unknown): string | undefined {
+  return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+function normalizeSprint(raw: Raw): AcpSprint {
+  // The backend may inline lead fields or nest them under `lead: { … }`.
+  const lead = (raw.lead ?? null) as Raw | null;
+  const leadId =
+    str(raw.source_lead_id) ??
+    str(raw.lead_id) ??
+    (lead ? str(lead.id) : undefined) ??
+    null;
+  const statusRaw = String(raw.status ?? "active");
+  const status = SPRINT_STATUS_SET.has(statusRaw as AcpSprint["status"])
+    ? (statusRaw as AcpSprint["status"])
+    : "active";
+  return {
+    id: String(raw.id ?? ""),
+    hospital_name: String(
+      raw.hospital_name ?? raw.clinic_name ?? lead?.clinic_name ?? "—",
+    ),
+    amount: num(raw.amount ?? raw.estimated_value),
+    status,
+    started_at: String(raw.started_at ?? raw.sprint_started_at ?? ""),
+    refund_deadline: str(raw.refund_deadline),
+    confirmed_at: str(raw.confirmed_at) ?? null,
+    plan_name: str(raw.plan_name) ?? null,
+    plan_value: raw.plan_value != null ? num(raw.plan_value) : null,
+    lead_id: leadId,
+    doctor_name: str(raw.doctor_name) ?? (lead ? str(lead.doctor_name) : undefined) ?? null,
+    phone: str(raw.phone) ?? (lead ? str(lead.phone) : undefined) ?? null,
+    city: str(raw.city) ?? (lead ? str(lead.city) : undefined) ?? null,
+  };
+}
+
+function normalizeSprintList(raw: Raw): AcpSprintList {
+  const sprints = Array.isArray(raw.sprints) ? raw.sprints : [];
+  return {
+    sprints: sprints.map((s) => normalizeSprint(s as Raw)),
+    sprint_rev: num(raw.sprint_rev),
+    sub_rev: num(raw.sub_rev),
+  };
+}
+
 export function getAcpMemberSprints(
   memberId: string,
   signal?: AbortSignal,
 ): Promise<AcpSprintList> {
   return withFallback(
-    () => apiData<AcpSprintList>(`${BASE}/members/${memberId}/sprints`, { signal }),
+    () =>
+      apiData<Raw>(`${BASE}/members/${memberId}/sprints`, { signal }).then(
+        normalizeSprintList,
+      ),
     () => mock.sprints(memberId),
+  );
+}
+
+function normalizeMessage(r: Raw): AcpMessage {
+  return {
+    id: String(r.id ?? ""),
+    member_id: String(r.member_id ?? ""),
+    sent_by: String(r.sent_by ?? ""),
+    message: String(r.message ?? ""),
+    created_at: String(r.created_at ?? ""),
+  };
+}
+
+/**
+ * A specific member's thread, newest first — the admin read route
+ * (`GET /acp/members/:memberId/messages`), keyed by the `acp_members` UUID.
+ * Reps can't use this: they don't know their `acp_member` id and the route is
+ * admin-only (it 403s for them). A rep reads their own inbox via
+ * `getMyAcpMessages` instead.
+ */
+export function getAcpMemberMessages(
+  memberId: string,
+  signal?: AbortSignal,
+): Promise<AcpMessage[]> {
+  return withFallback(
+    () =>
+      apiData<Raw[]>(`${BASE}/members/${memberId}/messages`, { signal }).then(
+        (rows) => (rows ?? []).map(normalizeMessage),
+      ),
+    () => mock.messages(),
+  );
+}
+
+/**
+ * The logged-in rep's own Accelerator coaching inbox, newest first
+ * (`GET /acp/me/messages`). The backend resolves the rep → `acp_member` from the
+ * JWT, so no id is needed — this replaces the old `/members/:id/messages` call,
+ * which 403'd because a rep can't know their `acp_member` id. A 404 means the
+ * caller isn't enrolled in the Accelerator program; the inbox should be hidden
+ * in that case, so we let the error surface (no `withFallback`) rather than
+ * masking a real "not a member" 404 as an empty thread.
+ */
+export function getMyAcpMessages(signal?: AbortSignal): Promise<AcpMessage[]> {
+  return apiData<Raw[]>(`${BASE}/me/messages`, { signal }).then((rows) =>
+    (rows ?? []).map(normalizeMessage),
   );
 }
 
@@ -1015,12 +1244,7 @@ function buildStore(): MockStore {
 
 const store = buildStore();
 
-const REVIEW_KEYS: AcpReview[] = [
-  "working_fine",
-  "observation",
-  "needs_improvement",
-  "retrain",
-];
+const REVIEW_KEYS: AcpReview[] = ["working_fine", "observation", "retrain"];
 
 const mock = {
   overview(): AcpOverview {
@@ -1235,17 +1459,40 @@ const mock = {
     return { success: true };
   },
 
-  setTag(memberId: string, tag: AcpTag): { success: true } {
+  setTag(memberId: string, tag: AcpTag): AcpTagResult {
+    const status: "active" | "inactive" =
+      tag === "fired" ? "inactive" : "active";
     const rec = store.records.get(memberId);
     if (rec) {
       rec.member.tag = tag;
-      rec.member.status = tag === "fired" ? "inactive" : "active";
+      rec.member.status = status;
     }
-    return { success: true };
+    return { success: true, tag, status };
+  },
+
+  setNote(memberId: string, note: string): AcpNoteResult {
+    const now = new Date().toISOString();
+    const rec = store.records.get(memberId);
+    if (rec) {
+      rec.member.note = note;
+      rec.member.note_updated_at = now;
+    }
+    return { note, note_updated_at: now };
   },
 
   message(): { success: true } {
     return { success: true };
+  },
+
+  // No mock user store — admin password resets are a no-op offline.
+  setPassword(): { success: true } {
+    return { success: true };
+  },
+
+  // The mock store doesn't track admin messages; an empty inbox is the
+  // honest offline fallback (vs. inventing fake coaching messages).
+  messages(): AcpMessage[] {
+    return [];
   },
 };
 

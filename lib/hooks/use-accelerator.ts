@@ -5,15 +5,21 @@ import { useCallback } from "react";
 import {
   addAcpMember,
   createAcpBatch,
+  deleteAcpMember,
   getAcpBatch,
   getAcpBatchStats,
   getAcpMember,
   getAcpMemberDailyLogs,
+  getAcpMemberMessages,
+  getAcpMemberSprints,
   getAcpOverview,
   getAcpWeekView,
+  getMyAcpMessages,
   listAcpBatches,
   listAcpMembers,
   sendAcpMessage,
+  setAcpMemberNote,
+  setAcpMemberPassword,
   setAcpMemberTag,
   setAcpReview,
   type AcpReview,
@@ -84,6 +90,31 @@ export function useAcpMemberDailyLogs(memberId: string | null) {
   );
 }
 
+export function useAcpMemberSprints(memberId: string | null) {
+  return useAsync(
+    (signal) =>
+      memberId ? getAcpMemberSprints(memberId, signal) : Promise.resolve(null),
+    [memberId],
+  );
+}
+
+/** A member's admin-message thread, newest first (admin read route). */
+export function useAcpMemberMessages(memberId: string | null) {
+  return useAsync(
+    (signal) =>
+      memberId ? getAcpMemberMessages(memberId, signal) : Promise.resolve(null),
+    [memberId],
+  );
+}
+
+/**
+ * The logged-in rep's own Accelerator coaching inbox, newest first.
+ * A 404 surfaces on `error` and signals "not an ACP member" (hide the inbox).
+ */
+export function useMyAcpMessages() {
+  return useAsync((signal) => getMyAcpMessages(signal), []);
+}
+
 /** Mutations — stable callbacks for create / add / review / tag / message. */
 export function useAcpMutations() {
   return {
@@ -95,12 +126,25 @@ export function useAcpMutations() {
       (batchId: string, input: AddMemberInput) => addAcpMember(batchId, input),
       [],
     ),
+    deleteMember: useCallback(
+      (memberId: string) => deleteAcpMember(memberId),
+      [],
+    ),
     setReview: useCallback(
       (logId: string, review: AcpReview) => setAcpReview(logId, review),
       [],
     ),
     setTag: useCallback(
       (memberId: string, tag: AcpTag) => setAcpMemberTag(memberId, tag),
+      [],
+    ),
+    setNote: useCallback(
+      (memberId: string, note: string) => setAcpMemberNote(memberId, note),
+      [],
+    ),
+    setPassword: useCallback(
+      (memberId: string, password: string) =>
+        setAcpMemberPassword(memberId, password),
       [],
     ),
     sendMessage: useCallback(

@@ -14,6 +14,7 @@ import {
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -22,6 +23,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/layout/page-header";
+import {
+  LazyLeafletMap,
+  type MapMarker,
+  type MapPolyline,
+} from "@/components/maps/lazy-leaflet-map";
 import { useAuth } from "@/lib/auth";
 import {
   isSalesAdminOrSuperAdmin,
@@ -35,7 +41,14 @@ import {
   useDistanceToday,
   useTeamDistance,
 } from "@/lib/hooks/use-distance";
+import { useLocationTrack } from "@/lib/hooks/use-locations";
 import { cn } from "@/lib/utils";
+
+const INDIA_CENTER = { lat: 20.5937, lng: 78.9629 };
+
+function todayYmd(): string {
+  return new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD (local)
+}
 
 export function DistanceScreen() {
   const auth = useAuth();
@@ -205,7 +218,114 @@ function MyDistance() {
           )}
         </div>
       </Card>
+
+      <MyRouteMap />
     </section>
+  );
+}
+
+// Rep's own GPS route for a chosen day (route + start/end markers).
+// Mirrors RepMapTab but self-scoped to the signed-in rep.
+function MyRouteMap() {
+  const auth = useAuth();
+  const userId = auth.user?.id;
+  const [date, setDate] = useState(todayYmd());
+  const track = useLocationTrack({ user_id: userId, date });
+
+  const { polylines, markers, center, zoom, hasPoints } = useMemo(() => {
+    const sessions = track.data?.tracks ?? [];
+    const lines: MapPolyline[] = [];
+    const pts: MapMarker[] = [];
+    let first: { lat: number; lng: number } | null = null;
+
+    sessions.forEach((s, i) => {
+      const points = s.points.map((p) => ({ lat: p.lat, lng: p.lng }));
+      if (points.length === 0) return;
+      if (!first) first = points[0] ?? null;
+      if (points.length >= 2) {
+        lines.push({ id: s.session_id, points, color: "#8b5cf6" });
+      }
+      const start = points[0];
+      const end = points[points.length - 1];
+      if (start) {
+        pts.push({
+          id: `${s.session_id}-start`,
+          lat: start.lat,
+          lng: start.lng,
+          label: `Session ${i + 1} start`,
+          color: "#10b981",
+          radius: 7,
+        });
+      }
+      if (end && points.length > 1) {
+        pts.push({
+          id: `${s.session_id}-end`,
+          lat: end.lat,
+          lng: end.lng,
+          label: `Session ${i + 1} end`,
+          color: "#ef4444",
+          radius: 7,
+        });
+      }
+    });
+
+    return {
+      polylines: lines,
+      markers: pts,
+      center: first ?? INDIA_CENTER,
+      // Zoom into the route when we have one; otherwise show the country
+      // so the map is always visible rather than an empty placeholder.
+      zoom: first ? 13 : 4,
+      hasPoints: pts.length > 0,
+    };
+  }, [track.data]);
+
+  const totalKm = ((track.data?.total_meters ?? 0) / 1000).toFixed(1);
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">Route map</h3>
+          <p className="text-xs text-zinc-500">
+            Your GPS track for the selected day.
+          </p>
+        </div>
+        <Input
+          type="date"
+          aria-label="Route date"
+          value={date}
+          max={todayYmd()}
+          onChange={(e) => setDate(e.target.value)}
+          className="w-40"
+        />
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {track.error ? (
+          <div className="grid h-[440px] place-items-center rounded-xl border border-zinc-200 text-sm text-rose-500 dark:border-zinc-800">
+            {errorMessage(track.error)}
+          </div>
+        ) : (
+          <>
+            <LazyLeafletMap
+              center={center}
+              zoom={zoom}
+              markers={markers}
+              polylines={polylines}
+              className="h-[440px]"
+            />
+            <p className="text-xs text-zinc-500">
+              {track.isLoading && !track.data
+                ? "Loading track…"
+                : hasPoints
+                  ? `${totalKm} km tracked across ${track.data?.session_count ?? 0} session${(track.data?.session_count ?? 0) === 1 ? "" : "s"}.`
+                  : "No location track recorded on this day."}
+            </p>
+          </>
+        )}
+      </div>
+    </Card>
   );
 }
 

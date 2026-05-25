@@ -10,6 +10,7 @@ import {
   Pause,
   Play,
   Send,
+  TrendingUp,
   Volume2,
   Zap,
 } from "lucide-react";
@@ -463,7 +464,7 @@ export function RepDetailPanel({
   );
 }
 
-function MiniStat({
+export function MiniStat({
   label,
   value,
   tone,
@@ -490,7 +491,7 @@ function MiniStat({
   );
 }
 
-function HospitalRow({
+export function HospitalRow({
   name,
   date,
   green,
@@ -515,7 +516,68 @@ function HospitalRow({
   );
 }
 
-function DayLogCard({
+/** Per-lead activity for one day: visited and/or sprint-accepted, with notes. */
+interface LeadActivity {
+  name: string;
+  /** True when the rep started/accepted a sprint at this lead. */
+  sprinted: boolean;
+  /** Sentences from the day's note that name this lead. */
+  notes: string[];
+}
+
+/**
+ * Split a day's free-text note into sentences and attach each to the lead it
+ * names, so each per-lead card can show what the rep actually did at that stop.
+ * Sentences that don't name any lead are returned separately as a day-level note.
+ */
+function attributeNote(
+  note: string,
+  leads: string[],
+): { byLead: Map<string, string[]>; general: string[] } {
+  const byLead = new Map<string, string[]>();
+  const general: string[] = [];
+  const sentences =
+    note.match(/[^.!?\n]+[.!?]*/g)?.map((s) => s.trim()).filter(Boolean) ?? [];
+  for (const sentence of sentences) {
+    const lower = sentence.toLowerCase();
+    const owners = leads.filter((l) => l && lower.includes(l.toLowerCase()));
+    if (owners.length === 0) {
+      general.push(sentence);
+      continue;
+    }
+    for (const owner of owners) {
+      const arr = byLead.get(owner) ?? [];
+      arr.push(sentence);
+      byLead.set(owner, arr);
+    }
+  }
+  return { byLead, general };
+}
+
+/**
+ * Turn a daily log into one entry per lead (visited ∪ sprint-accepted), so the
+ * admin sees each lead as its own card instead of three names lumped on one row.
+ */
+function buildLeadActivities(log: AcpDailyLog): {
+  leads: LeadActivity[];
+  generalNotes: string[];
+} {
+  const sprinted = new Set(log.sprint_accepted);
+  // Union of visited + sprint-accepted leads, preserving first-seen order.
+  const order: string[] = [];
+  for (const name of [...log.visited, ...log.sprint_accepted]) {
+    if (name && !order.includes(name)) order.push(name);
+  }
+  const { byLead, general } = attributeNote(log.note ?? "", order);
+  const leads = order.map((name) => ({
+    name,
+    sprinted: sprinted.has(name),
+    notes: byLead.get(name) ?? [],
+  }));
+  return { leads, generalNotes: general };
+}
+
+export function DayLogCard({
   log,
   onReview,
 }: {
@@ -525,6 +587,10 @@ function DayLogCard({
   const activity = ACTIVITY_META[log.activity_type];
   const review = log.admin_review ? REVIEW_META[log.admin_review] : null;
   const isToday = log.date === TODAY;
+  const { leads, generalNotes } = buildLeadActivities(log);
+  // With per-lead cards, the day note shows only sentences not tied to a lead.
+  // On days with no leads (e.g. a training day) the note is the whole story.
+  const dayNote = leads.length > 0 ? generalNotes.join(" ") : log.note;
 
   return (
     <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
@@ -558,30 +624,69 @@ function DayLogCard({
         </span>
       </div>
 
-      {log.note ? (
+      {dayNote ? (
         <p className="mt-1.5 text-sm text-zinc-700 dark:text-zinc-200">
-          {log.note}
+          {dayNote}
         </p>
       ) : null}
 
-      {log.visited.length > 0 ? (
-        <p className="mt-1 flex items-center gap-1 text-xs text-zinc-500">
-          <MapPin className="h-3 w-3" aria-hidden />
+      {/* One card per lead so the admin can tell each visit/sprint apart. */}
+      {leads.length > 0 ? (
+        <div className="mt-2 space-y-1.5">
+          {leads.map((lead) => (
+            <div
+              key={lead.name}
+              className={cn(
+                "rounded-md border px-2.5 py-2",
+                lead.sprinted
+                  ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+                  : "border-zinc-200 bg-zinc-50/70 dark:border-zinc-800 dark:bg-zinc-900/40",
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                  {lead.sprinted ? (
+                    <Zap
+                      className="h-3.5 w-3.5 shrink-0 text-emerald-500"
+                      aria-hidden
+                    />
+                  ) : (
+                    <MapPin
+                      className="h-3.5 w-3.5 shrink-0 text-amber-500"
+                      aria-hidden
+                    />
+                  )}
+                  <span className="truncate">{lead.name}</span>
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold",
+                    lead.sprinted
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
+                  )}
+                >
+                  {lead.sprinted ? "Sprint accepted" : "Visited"}
+                </span>
+              </div>
+              {lead.notes.length > 0 ? (
+                <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                  {lead.notes.join(" ")}
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {log.sprint_revenue && log.sprint_revenue > 0 ? (
+        <p className="mt-2 flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+          <TrendingUp className="h-3 w-3" aria-hidden />
           <span>
-            <span className="font-medium text-zinc-600 dark:text-zinc-300">
-              Visited:
+            <span className="font-medium">
+              {leads.length > 1 ? "Day total:" : "Sprint revenue:"}
             </span>{" "}
-            {log.visited.join(", ")}
-          </span>
-        </p>
-      ) : null}
-
-      {log.sprint_accepted.length > 0 ? (
-        <p className="mt-1 flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-          <Zap className="h-3 w-3" aria-hidden />
-          <span>
-            <span className="font-medium">Sprint accepted:</span>{" "}
-            {log.sprint_accepted.join(", ")}
+            <span className="tabular-nums">{acpFmt(log.sprint_revenue)}</span>
           </span>
         </p>
       ) : null}
@@ -645,7 +750,7 @@ function fmtClock(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function AudioBar({
+export function AudioBar({
   url,
   filename,
   duration,

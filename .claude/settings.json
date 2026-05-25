@@ -11,7 +11,10 @@
       "Bash(grep -rn \"RepAnalyticsTab\\\\|rep-analytics-tab\" components app)",
       "Bash(cat \"app/\\(dashboard\\)/performance/page.tsx\")",
       "Bash(ls components/performance)",
-      "Bash(find components *)"
+      "Bash(find components *)",
+      "Bash(sed -i '960,1246d' components/sales/follow-ups/follow-ups-screen.tsx)",
+      "Bash(sed -n '954,968p' components/sales/follow-ups/follow-ups-screen.tsx)",
+      "Bash(node -e \"const s=require\\('./package.json'\\).scripts; console.log\\(JSON.stringify\\(s,null,2\\)\\)\")"
     ]
   }
 }

@@ -18,9 +18,15 @@ interface LeadsTableProps {
   onEditClick: (lead: Lead) => void;
   /**
    * Trash icon click — confirms then hard-deletes the lead. Omit to hide the
-   * delete affordance entirely (e.g. for non-super-admin viewers).
+   * delete affordance entirely (e.g. for viewers who can't delete anything).
    */
   onDeleteClick?: (lead: Lead) => void;
+  /**
+   * Per-row predicate — when provided, the trash button only renders for leads
+   * this returns true for (e.g. a sales member can delete only leads they own).
+   * Omit to show delete on every row whenever `onDeleteClick` is set.
+   */
+  canDeleteLead?: (lead: Lead) => boolean;
   /** True while a delete is in flight; disables the trash button for that row. */
   deletingId?: string | null;
 }
@@ -31,6 +37,7 @@ export function LeadsTable({
   onRowClick,
   onEditClick,
   onDeleteClick,
+  canDeleteLead,
   deletingId,
 }: LeadsTableProps) {
   if (leads.length === 0) {
@@ -125,7 +132,8 @@ export function LeadsTable({
                       >
                         <SquarePen className="h-4 w-4" />
                       </button>
-                      {onDeleteClick ? (
+                      {onDeleteClick &&
+                      (!canDeleteLead || canDeleteLead(lead)) ? (
                         <button
                           type="button"
                           aria-label={`Delete ${lead.clinicName}`}

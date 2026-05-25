@@ -68,6 +68,45 @@ export function useAsync<T>(
 }
 
 /**
+ * Re-run the given refetchers whenever the tab regains focus or becomes
+ * visible again. Lets an already-open page pick up changes made elsewhere —
+ * e.g. a rep deleting a lead on their own app should be reflected on the
+ * admin's open rep-profile (lead count, sprint ₹, sprints list) when the admin
+ * switches back to the dashboard, without a manual reload.
+ *
+ * The `refetch` callbacks from `useAsync` are stable, so passing a fresh array
+ * inline each render is fine (we read the latest via a ref). A short throttle
+ * collapses the focus+visibilitychange pair that fires together on alt-tab.
+ */
+export function useRefetchOnFocus(refetchers: ReadonlyArray<() => void>): void {
+  const refetchersRef = useRef(refetchers);
+  refetchersRef.current = refetchers;
+  const lastRunRef = useRef(0);
+
+  useEffect(() => {
+    const run = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+      const now = Date.now();
+      // Collapse the focus + visibilitychange events that both fire on alt-tab.
+      if (now - lastRunRef.current < 1000) return;
+      lastRunRef.current = now;
+      for (const refetch of refetchersRef.current) refetch();
+    };
+    window.addEventListener("focus", run);
+    document.addEventListener("visibilitychange", run);
+    return () => {
+      window.removeEventListener("focus", run);
+      document.removeEventListener("visibilitychange", run);
+    };
+  }, []);
+}
+
+/**
  * Friendly text for the structured `error.code` values the Sales API
  * returns. Source of truth:
  *   - docs/BACKEND_SPEC_SALES_ADMIN_ACCESS.md §2 (WRONG_TEAM)

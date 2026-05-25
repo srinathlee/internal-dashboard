@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlertTriangle,
   Ban,
   BookOpen,
   Briefcase,
@@ -115,15 +114,6 @@ export const REVIEW_META: Record<AcpReview, ReviewMeta> = {
     card: "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300",
     text: "text-amber-600 dark:text-amber-400",
   },
-  needs_improvement: {
-    label: "Needs improvement",
-    icon: AlertTriangle,
-    dot: "bg-orange-500",
-    badge:
-      "bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300",
-    card: "border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-300",
-    text: "text-orange-600 dark:text-orange-400",
-  },
   retrain: {
     label: "Re-train",
     icon: RotateCcw,
@@ -183,14 +173,7 @@ export const TAG_META: Record<AcpTag, TagMeta> = {
 };
 
 /** Tag options in display order — drives the rep panel's tag selector. */
-export const TAG_KEYS: AcpTag[] = [
-  "active",
-  "close_monitoring",
-  "at_risk",
-  "firing_zone",
-  "converted",
-  "fired",
-];
+export const TAG_KEYS: AcpTag[] = ["active", "fired"];
 
 // ---------------------------------------------------------------------------
 // Activity (day-type) meta

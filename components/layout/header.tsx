@@ -14,6 +14,7 @@ import {
 
 import { MobileSidebarBody } from "./sidebar";
 import { PAGE_TITLE_BY_PATH } from "./nav-config";
+import { MessagesButton } from "./messages-button";
 import { NotificationsButton } from "./notifications-button";
 import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
@@ -61,6 +62,7 @@ export function Header() {
       {/* Right cluster */}
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
         <ThemeToggle />
+        <MessagesButton />
         <NotificationsButton />
         <UserMenu />
       </div>
