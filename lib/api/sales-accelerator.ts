@@ -368,7 +368,7 @@ function normalizeDailyLog(raw: Record<string, unknown>): AcpDailyLog {
     id: String(raw.id ?? ""),
     member_id: typeof raw.member_id === "string" ? raw.member_id : undefined,
     date: String(raw.date ?? "").slice(0, 10),
-    week: num(raw.week),
+    week: num(raw.week_number ?? raw.week),
     day_in_week: num(raw.day_in_week ?? raw.day),
     activity_type: normActivity(raw.type ?? raw.activity_type),
     note: String(raw.note ?? ""),
@@ -880,6 +880,42 @@ export function getMyAcpMessages(signal?: AbortSignal): Promise<AcpMessage[]> {
   return apiData<Raw[]>(`${BASE}/me/messages`, { signal }).then((rows) =>
     (rows ?? []).map(normalizeMessage),
   );
+}
+
+/**
+ * The logged-in rep's own Accelerator daily logs (`GET /acp/me/daily-logs`),
+ * newest first. The backend resolves the rep → `acp_member` from the JWT, so no
+ * id is needed — a rep can't use the admin `/members/:id/daily-logs` route. Like
+ * `getMyAcpMessages`, a 404 means "not enrolled in the Accelerator": we let it
+ * surface (no `withFallback`) so the rep's pitch-upload control hides instead of
+ * masking a real 404 as an empty list.
+ */
+export function getMyAcpDailyLogs(signal?: AbortSignal): Promise<AcpDailyLog[]> {
+  return apiData<Raw[]>(`${BASE}/me/daily-logs`, { signal }).then((rows) =>
+    (rows ?? []).map(normalizeDailyLog),
+  );
+}
+
+/**
+ * Upload a pre-recorded pitch recording to one of the rep's own daily logs
+ * (`POST /acp/me/daily-logs/audio`, multipart/form-data). Fields: `date`
+ * (YYYY-MM-DD — which day's log to attach to) and `audio` (the file). The rep is
+ * resolved from the JWT; the backend attaches the recording to that date's log,
+ * creating the log if none exists, and returns the updated log with a presigned,
+ * directly-playable `audio_url` so the daily work log shows it immediately. No
+ * mock fallback — a real upload must reach the server.
+ */
+export function uploadMyAcpDayAudio(
+  date: string,
+  file: File,
+): Promise<AcpDailyLog> {
+  const form = new FormData();
+  form.append("date", date);
+  form.append("audio", file);
+  return apiData<Raw>(`${BASE}/me/daily-logs/audio`, {
+    method: "POST",
+    body: form,
+  }).then(normalizeDailyLog);
 }
 
 // ---------------------------------------------------------------------------

@@ -193,6 +193,17 @@ export function RepProfileScreen({
   const subscriptions = sprintList.filter((s) => s.status === "converted");
   const runningSprints = activeSprints.length;
   const convertedSprints = subscriptions.length;
+  // M2 progress mirrors month1_pct: subscription revenue toward the ₹1.1L
+  // revenue target, the way M1 tracks sprint ₹ toward the ₹10K sprint target.
+  // Both bars stay on screen in every month so the M2 goal isn't missed once
+  // the rep crosses into month 2.
+  const month2Pct =
+    m && m.revenue_target > 0
+      ? Math.min(
+          100,
+          Math.round((m.subscription_revenue / m.revenue_target) * 100),
+        )
+      : 0;
 
   const handleReview = async (log: AcpDailyLog, value: AcpReview) => {
     const prev = log.admin_review;
@@ -424,25 +435,20 @@ export function RepProfileScreen({
               }
             />
             <Card className="col-span-2 p-4 sm:col-span-1 sm:p-5">
-              <SectionLabel>M1 progress</SectionLabel>
-              <div
-                className={cn(
-                  "mt-1 text-2xl font-bold tabular-nums",
-                  m.month1_pct >= 100
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-violet-600 dark:text-violet-400",
-                )}
-              >
-                {m.month1_pct}%
-              </div>
-              <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-                <div
-                  className="h-full rounded-full bg-violet-500"
-                  style={{ width: `${Math.min(100, m.month1_pct)}%` }}
+              <SectionLabel>Progress</SectionLabel>
+              <div className="mt-2 space-y-3">
+                <ProgressRow
+                  label="M1 · sprint"
+                  pct={m.month1_pct}
+                  caption={`${acpFmt(m.sprint_revenue)} of ${acpFmt(m.sprint_target || 10000)}`}
+                  active={repWeek?.month === 1}
                 />
-              </div>
-              <div className="mt-1.5 text-[11px] text-zinc-500">
-                {acpFmt(m.sprint_revenue)} of {acpFmt(m.sprint_target || 10000)}
+                <ProgressRow
+                  label="M2 · revenue"
+                  pct={month2Pct}
+                  caption={`${acpFmt(m.subscription_revenue)} of ${acpFmt(m.revenue_target || 110000)}`}
+                  active={repWeek?.month === 2}
+                />
               </div>
             </Card>
           </div>
@@ -686,6 +692,62 @@ function StatTile({
         <div className="mt-1.5 text-[11px] text-zinc-500">{caption}</div>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * One labelled progress bar inside the program-progress card. Rendered twice —
+ * M1 (sprint ₹) and M2 (revenue) — so both months stay visible regardless of
+ * where the rep is. `active` marks the rep's current month with a "Now" pill;
+ * a completed bar (≥100%) turns emerald, otherwise it's violet.
+ */
+function ProgressRow({
+  label,
+  pct,
+  caption,
+  active,
+}: {
+  label: string;
+  pct: number;
+  caption: string;
+  active?: boolean;
+}) {
+  const done = pct >= 100;
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500">
+          {label}
+          {active ? (
+            <span className="rounded bg-violet-100 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+              Now
+            </span>
+          ) : null}
+        </span>
+        <span
+          className={cn(
+            "text-sm font-bold tabular-nums",
+            done
+              ? "text-emerald-600 dark:text-emerald-400"
+              : active
+                ? "text-violet-600 dark:text-violet-400"
+                : "text-zinc-400 dark:text-zinc-500",
+          )}
+        >
+          {pct}%
+        </span>
+      </div>
+      <div className="mt-1 h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+        <div
+          className={cn(
+            "h-full rounded-full",
+            done ? "bg-emerald-500" : "bg-violet-500",
+          )}
+          style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+        />
+      </div>
+      <div className="mt-1 text-[11px] text-zinc-500">{caption}</div>
+    </div>
   );
 }
 

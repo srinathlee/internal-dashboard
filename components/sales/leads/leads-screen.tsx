@@ -34,6 +34,7 @@ import {
   toApiStage,
 } from "@/lib/api/adapters";
 import { getLead } from "@/lib/api/sales-leads";
+import { ApiError } from "@/lib/api/client";
 import { resolveActorName } from "@/lib/format";
 import type { Lead, LeadStage } from "@/lib/types";
 
@@ -152,7 +153,7 @@ export function LeadsScreen() {
   const handleDeleteClick = async (lead: Lead) => {
     if (!canDeleteLead(lead)) return;
     const confirmed = window.confirm(
-      `Delete lead "${lead.clinicName}"? This permanently removes the lead, its history and any linked sprint, and updates the rep's lead count. This action cannot be undone.`,
+      `Delete lead "${lead.clinicName}"? This permanently removes the lead and its history and updates the rep's lead count. If the lead has an active sprint you'll need to mark it Lost first. This action cannot be undone.`,
     );
     if (!confirmed) return;
 
@@ -172,13 +173,28 @@ export function LeadsScreen() {
       }
       toast.success(`"${lead.clinicName}" deleted`);
       // Refresh so the rep's lead count / sprint roll-ups reflect the removal.
-      // (A lead with a linked sprint is deleted entirely — the backend cascades
-      // the sprint and updates the counts; deletion is never blocked.)
+      // (A refunded sprint is cascaded away with the lead; the batch SPRINTS
+      // count drops on the next stats read — see backend-fix-acp-batch-sprint-count.md.)
       void leadsQuery.refetch();
     } catch (err) {
-      toast.error("Couldn't delete lead", {
-        description: errorMessage(err),
-      });
+      // The backend blocks deleting a lead whose sprint is still active/
+      // confirmed/converted (only refunded sprints cascade) — it returns
+      // 409 SPRINT_LINKED. Surface its guidance instead of a generic failure
+      // so the rep knows to mark the lead Lost first.
+      if (
+        err instanceof ApiError &&
+        (err.code === "SPRINT_LINKED" || err.status === 409)
+      ) {
+        toast.error("Can't delete — this lead has an active sprint", {
+          description:
+            err.message ||
+            "Move it to Lost first, or contact an admin.",
+        });
+      } else {
+        toast.error("Couldn't delete lead", {
+          description: errorMessage(err),
+        });
+      }
     } finally {
       setDeletingId(null);
     }

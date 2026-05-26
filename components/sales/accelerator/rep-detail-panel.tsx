@@ -5,10 +5,12 @@ import {
   ArrowLeft,
   Building2,
   Clock,
+  FastForward,
   MapPin,
   MessageSquare,
   Pause,
   Play,
+  Rewind,
   Send,
   TrendingUp,
   Volume2,
@@ -314,19 +316,23 @@ export function RepDetailPanel({
                 }
               />
             </div>
-            <div>
-              <div className="h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-                <div
-                  className="h-full rounded-full bg-amber-400"
-                  style={{
-                    width: `${Math.min(100, (m.sprint_revenue / (m.sprint_target || 10000)) * 100)}%`,
-                  }}
-                />
-              </div>
-              <div className="mt-1 text-[11px] text-zinc-500">
-                {acpFmt(m.sprint_revenue)} of {acpFmt(m.sprint_target || 10000)}{" "}
-                Month 1
-              </div>
+            <div className="space-y-2.5">
+              <ProgressBar
+                label="M1 · sprint"
+                pct={Math.round(
+                  (m.sprint_revenue / (m.sprint_target || 10000)) * 100,
+                )}
+                caption={`${acpFmt(m.sprint_revenue)} of ${acpFmt(m.sprint_target || 10000)}`}
+                active={repWeek?.month === 1}
+              />
+              <ProgressBar
+                label="M2 · revenue"
+                pct={Math.round(
+                  (m.subscription_revenue / (m.revenue_target || 110000)) * 100,
+                )}
+                caption={`${acpFmt(m.subscription_revenue)} of ${acpFmt(m.revenue_target || 110000)}`}
+                active={repWeek?.month === 2}
+              />
             </div>
 
             {/* Message */}
@@ -487,6 +493,50 @@ export function MiniStat({
       <div className={cn("mt-1 text-lg font-bold tabular-nums", toneClass)}>
         {value}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Labelled program-progress bar in the rep side panel. Shown twice — M1 (sprint
+ * ₹ / ₹10K) and M2 (revenue / ₹1.1L) — so both months stay visible. `active`
+ * tags the rep's current month; a completed bar (≥100%) turns emerald.
+ */
+function ProgressBar({
+  label,
+  pct,
+  caption,
+  active,
+}: {
+  label: string;
+  pct: number;
+  caption: string;
+  active?: boolean;
+}) {
+  const done = pct >= 100;
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[11px] text-zinc-500">
+        <span className="flex items-center gap-1.5 font-medium">
+          {label}
+          {active ? (
+            <span className="rounded bg-violet-100 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+              Now
+            </span>
+          ) : null}
+        </span>
+        <span className="tabular-nums">{pct}%</span>
+      </div>
+      <div className="mt-1 h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+        <div
+          className={cn(
+            "h-full rounded-full",
+            done ? "bg-emerald-500" : "bg-violet-500",
+          )}
+          style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+        />
+      </div>
+      <div className="mt-1 text-[11px] text-zinc-500">{caption}</div>
     </div>
   );
 }
@@ -761,10 +811,11 @@ export function AudioBar({
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  // Prefer the server-supplied duration; otherwise read it off the element
-  // once the presigned recording loads its metadata.
-  const [shownDuration, setShownDuration] = useState(duration ?? "—");
+  const [current, setCurrent] = useState(0);
+  // Total length in seconds, read off the element once metadata loads. The
+  // `duration` prop is only a display string ("m:ss"), so we still need the
+  // numeric length to drive the seek slider's range and the skip clamps.
+  const [total, setTotal] = useState(0);
 
   const toggle = () => {
     if (!url) {
@@ -784,48 +835,85 @@ export function AudioBar({
     }
   };
 
+  // Jump to an absolute position (clamped), used by both the slider and the
+  // ±10s skip buttons so the rep/admin can scrub anywhere in the recording.
+  const seekTo = (seconds: number) => {
+    const el = audioRef.current;
+    if (!el || !Number.isFinite(seconds)) return;
+    const next = Math.min(Math.max(seconds, 0), total || el.duration || 0);
+    el.currentTime = next;
+    setCurrent(next);
+  };
+
+  const totalLabel = total > 0 ? fmtClock(total) : duration ?? "—";
+  const seekDisabled = !url || total <= 0;
+
   return (
-    <div className="mt-2 flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-      <button
-        type="button"
-        onClick={toggle}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-600 transition-colors hover:bg-violet-200 dark:bg-violet-950/40 dark:text-violet-300"
-        aria-label={playing ? "Pause" : "Play"}
-      >
-        {playing ? (
-          <Pause className="h-4 w-4" aria-hidden />
-        ) : (
-          <Play className="h-4 w-4" aria-hidden />
-        )}
-      </button>
-      <Volume2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" aria-hidden />
-      <span className="min-w-0 flex-1 truncate text-xs text-zinc-500">
-        {filename}
-      </span>
-      <div className="hidden h-1 w-16 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700 sm:block">
-        <div
-          className="h-full rounded-full bg-violet-500"
-          style={{ width: `${progress}%` }}
-        />
+    <div className="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={toggle}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-600 transition-colors hover:bg-violet-200 dark:bg-violet-950/40 dark:text-violet-300"
+          aria-label={playing ? "Pause" : "Play"}
+        >
+          {playing ? (
+            <Pause className="h-4 w-4" aria-hidden />
+          ) : (
+            <Play className="h-4 w-4" aria-hidden />
+          )}
+        </button>
+        <Volume2 className="h-3.5 w-3.5 shrink-0 text-zinc-400" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-xs text-zinc-500">
+          {filename}
+        </span>
+        <span className="shrink-0 text-[11px] tabular-nums text-zinc-400">
+          {fmtClock(current)} / {totalLabel}
+        </span>
       </div>
-      <span className="shrink-0 text-[11px] tabular-nums text-zinc-400">
-        {shownDuration}
-      </span>
+
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => seekTo(current - 10)}
+          disabled={seekDisabled}
+          aria-label="Back 10 seconds"
+          className="shrink-0 text-zinc-400 transition-colors hover:text-violet-600 disabled:opacity-40 dark:hover:text-violet-300"
+        >
+          <Rewind className="h-3.5 w-3.5" aria-hidden />
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={total || 0}
+          step="any"
+          value={Math.min(current, total || 0)}
+          onChange={(e) => seekTo(Number(e.target.value))}
+          disabled={seekDisabled}
+          aria-label="Seek"
+          className="h-1.5 flex-1 cursor-pointer accent-violet-500 disabled:cursor-default disabled:opacity-50"
+        />
+        <button
+          type="button"
+          onClick={() => seekTo(current + 10)}
+          disabled={seekDisabled}
+          aria-label="Forward 10 seconds"
+          className="shrink-0 text-zinc-400 transition-colors hover:text-violet-600 disabled:opacity-40 dark:hover:text-violet-300"
+        >
+          <FastForward className="h-3.5 w-3.5" aria-hidden />
+        </button>
+      </div>
+
       {url ? (
         <audio
           ref={audioRef}
           src={url}
           preload="metadata"
-          onLoadedMetadata={(e) => {
-            if (!duration) setShownDuration(fmtClock(e.currentTarget.duration));
-          }}
-          onTimeUpdate={(e) => {
-            const el = e.currentTarget;
-            if (el.duration) setProgress((el.currentTime / el.duration) * 100);
-          }}
+          onLoadedMetadata={(e) => setTotal(e.currentTarget.duration || 0)}
+          onTimeUpdate={(e) => setCurrent(e.currentTarget.currentTime)}
           onEnded={() => {
             setPlaying(false);
-            setProgress(0);
+            setCurrent(0);
           }}
           className="hidden"
         />

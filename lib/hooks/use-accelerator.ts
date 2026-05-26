@@ -14,6 +14,7 @@ import {
   getAcpMemberSprints,
   getAcpOverview,
   getAcpWeekView,
+  getMyAcpDailyLogs,
   getMyAcpMessages,
   listAcpBatches,
   listAcpMembers,
@@ -22,6 +23,7 @@ import {
   setAcpMemberPassword,
   setAcpMemberTag,
   setAcpReview,
+  uploadMyAcpDayAudio,
   type AcpReview,
   type AcpTag,
   type AddMemberInput,
@@ -113,6 +115,25 @@ export function useAcpMemberMessages(memberId: string | null) {
  */
 export function useMyAcpMessages() {
   return useAsync((signal) => getMyAcpMessages(signal), []);
+}
+
+/**
+ * The logged-in rep's own Accelerator daily logs. A 404 surfaces on `error` and
+ * means "not an Accelerator member" — the pitch-upload control hides in that
+ * case (mirrors {@link useMyAcpMessages}).
+ */
+export function useMyAcpDailyLogs() {
+  return useAsync((signal) => getMyAcpDailyLogs(signal), []);
+}
+
+/** Rep-self mutations — the rep acting on their own Accelerator record. */
+export function useMyAcpMutations() {
+  return {
+    uploadDayAudio: useCallback(
+      (date: string, file: File) => uploadMyAcpDayAudio(date, file),
+      [],
+    ),
+  };
 }
 
 /** Mutations — stable callbacks for create / add / review / tag / message. */

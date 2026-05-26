@@ -82,6 +82,7 @@ import {
   weekTitle,
 } from "./acp-shared";
 import { AddMemberModal } from "./add-member-modal";
+import { BatchAlerts } from "./admin-alert-panel";
 
 /** Max reps shown in the Attention / Fire list (lowest revenue first). */
 const FIRE_LIST_SIZE = 5;
@@ -389,10 +390,17 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
         title={b?.name ?? "Batch"}
         description={b?.location}
         actions={
-          <Button onClick={() => setShowAddMember(true)}>
-            <Plus className="h-4 w-4" aria-hidden />
-            Add member
-          </Button>
+          <div className="flex items-center gap-2">
+            <BatchAlerts
+              batchId={batchId}
+              members={memberList}
+              onOpenRep={openRep}
+            />
+            <Button onClick={() => setShowAddMember(true)}>
+              <Plus className="h-4 w-4" aria-hidden />
+              Add member
+            </Button>
+          </div>
         }
       />
 
