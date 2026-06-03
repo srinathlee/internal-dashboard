@@ -16,6 +16,7 @@ import type {
   AcpReview,
   AcpTag,
 } from "@/lib/api/sales-accelerator";
+import { programPosition } from "@/lib/acp/program-position";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -40,28 +41,22 @@ export interface RepWeek {
 }
 
 export function getRepWeek(joinedAt: string): RepWeek {
-  return weekDayForDate(joinedAt, new Date());
+  return programPosition(joinedAt);
 }
 
 /**
  * Program week/day for an arbitrary date relative to the rep's join date.
  * Used to place each daily log into its week section (the backend doesn't
  * always echo `week`/`day_in_week` on the per-member log feed).
+ *
+ * Counts working days only — Sundays are skipped (a Friday join makes Saturday
+ * "Day 2", the next Monday "Day 3"). See {@link programPosition}.
  */
 export function weekDayForDate(
   joinedAt: string,
   date: string | Date,
 ): RepWeek {
-  const joined = new Date(joinedAt).getTime();
-  const at = (typeof date === "string" ? new Date(date) : date).getTime();
-  const diffDays = Math.max(
-    0,
-    Math.floor((at - joined) / (1000 * 60 * 60 * 24)),
-  );
-  const week = Math.min(8, Math.floor(diffDays / 7) + 1);
-  const dayInWeek = Math.min(5, (diffDays % 7) + 1);
-  const month: 1 | 2 = week <= 4 ? 1 : 2;
-  return { week, dayInWeek, month };
+  return programPosition(joinedAt, date);
 }
 
 export const WEEK_CONFIG: { n: number; title: string }[] = [

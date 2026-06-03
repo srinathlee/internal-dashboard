@@ -15,8 +15,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/hooks/use-async";
-import { useAcpMutations } from "@/lib/hooks/use-accelerator";
+import {
+  useAcpMutations,
+  useAcpProgramConfig,
+} from "@/lib/hooks/use-accelerator";
 import type { AcpBatch } from "@/lib/api/sales-accelerator";
+
+import { acpFmt } from "./acp-shared";
 
 interface CreateBatchModalProps {
   open: boolean;
@@ -26,7 +31,10 @@ interface CreateBatchModalProps {
 
 /**
  * Create-batch modal. Batch name + location are the only inputs — the program
- * shape (2 months, ₹10K M1 / ₹1.1L M2 targets) is fixed and shown read-only.
+ * shape (duration + default M1/M2 targets) is read-only and sourced from the
+ * server's `/acp/program/config` endpoint so the copy stays in sync without a
+ * redeploy. Falls back to the historical hardcoded values if the endpoint is
+ * unavailable.
  */
 export function CreateBatchModal({
   open,
@@ -34,6 +42,10 @@ export function CreateBatchModal({
   onCreated,
 }: CreateBatchModalProps) {
   const { createBatch } = useAcpMutations();
+  const programConfig = useAcpProgramConfig();
+  const durationMonths = programConfig.data?.duration_months ?? 2;
+  const sprintTarget = programConfig.data?.default_sprint_target ?? 10000;
+  const revenueTarget = programConfig.data?.default_revenue_target ?? 110000;
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -112,9 +124,15 @@ export function CreateBatchModal({
               Program defaults
             </div>
             <dl className="mt-2 space-y-1.5 text-zinc-600 dark:text-zinc-300">
-              <Row label="Duration" value="2 months" />
-              <Row label="Month 1 target" value="₹10.0K sprints" />
-              <Row label="Month 2 target" value="₹1.1L subscriptions" />
+              <Row label="Duration" value={`${durationMonths} months`} />
+              <Row
+                label="Month 1 target"
+                value={`${acpFmt(sprintTarget)} sprints`}
+              />
+              <Row
+                label="Month 2 target"
+                value={`${acpFmt(revenueTarget)} subscriptions`}
+              />
             </dl>
           </div>
         </div>

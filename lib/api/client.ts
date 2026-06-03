@@ -275,6 +275,10 @@ function extractErrorMessage(body: unknown): string | undefined {
 function extractErrorCode(body: unknown): string | undefined {
   if (!body || typeof body !== "object") return undefined;
   const obj = body as Record<string, unknown>;
+  // Newer endpoints (e.g. PATCH /acp/members/:id on 409) return `code` at the
+  // top level of the error envelope alongside `success: false` + `message`.
+  if (typeof obj.code === "string") return obj.code;
+  // Older endpoints nest it inside an `error: { code }` block.
   if (obj.error && typeof obj.error === "object") {
     const e = obj.error as Record<string, unknown>;
     if (typeof e.code === "string") return e.code;

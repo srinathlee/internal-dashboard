@@ -142,23 +142,19 @@ export function RepProfileScreen({
     setNoteSavedAt(m?.note_updated_at ?? null);
   }, [m?.note, m?.note_updated_at]);
 
-  const repWeek = m
-    ? m.current_week != null
-      ? {
-          week: m.current_week,
-          dayInWeek: m.current_day ?? 1,
-          month: m.current_month ?? (m.current_week <= 4 ? 1 : 2),
-        }
-      : getRepWeek(m.joined_at)
-    : null;
+  // Program position is derived from joined_at with business-day math (weekends
+  // skipped) rather than the server's calendar-day current_week/current_day —
+  // see docs/backend-acp-business-day-program-position.md.
+  const repWeek = m ? getRepWeek(m.joined_at) : null;
 
-  // Decorate logs with week/day computed from joined_at + date.
+  // Decorate logs with week/day computed from joined_at + date. Always recompute
+  // (business-day calendar) so the day labels match `repWeek`, even when the
+  // backend echoes calendar-day week/day on the log feed.
   const decoratedLogs = useMemo(() => {
     if (!m) return logs;
     return logs.map((l) => {
-      if (l.week && l.day_in_week) return l;
       const wd = weekDayForDate(m.joined_at, l.date);
-      return { ...l, week: l.week || wd.week, day_in_week: l.day_in_week || wd.dayInWeek };
+      return { ...l, week: wd.week, day_in_week: wd.dayInWeek };
     });
   }, [logs, m]);
 

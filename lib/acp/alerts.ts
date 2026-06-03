@@ -26,6 +26,7 @@ import type {
   AcpMessage,
   AcpReview,
 } from "@/lib/api/sales-accelerator";
+import { programDayActivity, programPosition } from "./program-position";
 
 // ---------------------------------------------------------------------------
 // Alert shapes
@@ -100,41 +101,25 @@ export function todayLocalYmd(now: Date = new Date()): string {
     .slice(0, 10);
 }
 
-/** Program week/day for a date relative to the rep's join date (1–8 / 1–5). */
+/**
+ * Program week/day for a date relative to the rep's join date (1–8 / 1–5),
+ * counting business days only (weekends skipped). See {@link programPosition}.
+ */
 function positionForDate(joinedAt: string, at: Date): RepPosition {
-  const joined = new Date(joinedAt).getTime();
-  const diffDays = Math.max(
-    0,
-    Math.floor((at.getTime() - joined) / (1000 * 60 * 60 * 24)),
-  );
-  const week = Math.min(8, Math.floor(diffDays / 7) + 1);
-  const dayInWeek = Math.min(5, (diffDays % 7) + 1);
-  return { week, dayInWeek, month: week <= 4 ? 1 : 2 };
+  return programPosition(joinedAt, at);
 }
 
-/** Member's position now — prefers the server's value, else computes it. */
+/**
+ * Member's position now. Computed from `joined_at` with business-day math
+ * rather than the server's `current_week`/`current_day` (which count calendar
+ * days incl. weekends), so alerts fire on the same day the UI shows.
+ */
 function memberPosition(member: AcpMember, now: Date): RepPosition {
-  if (member.current_week != null) {
-    return {
-      week: member.current_week,
-      dayInWeek: member.current_day ?? 1,
-      month: (member.current_month ?? (member.current_week <= 4 ? 1 : 2)) as
-        | 1
-        | 2,
-    };
-  }
   return positionForDate(member.joined_at, now);
 }
 
-/** Expected day type for a given program week/day (mirrors the mock seed). */
-function expectedActivity(
-  week: number,
-  dayInWeek: number,
-): "training" | "observation" | "field" {
-  if (week === 1 && dayInWeek <= 2) return "training";
-  if (dayInWeek === 5 && week <= 2) return "observation";
-  return "field";
-}
+// Day type per (week, day) lives in {@link programDayActivity} so the alerts,
+// the daily-log inference, and the batch Weekly board all agree.
 
 /** Compact ₹ for alert detail lines (₹1.1L / ₹7.5K / ₹0). */
 function inr(value: number): string {
@@ -211,7 +196,7 @@ export function generateMemberAlerts(
   // --- Month 1 (weeks 1–4): sprint revenue toward ₹10K -----------------
   if (month === 1) {
     if (week === 1) {
-      if (day >= 5 && sprintRev === 0) {
+      if (day >= 6 && sprintRev === 0) {
         push(
           "warning",
           "performance",
@@ -239,7 +224,7 @@ export function generateMemberAlerts(
           "Below 25% of M1",
           `${inr(sprintRev)} of ${inr(sprintTarget)}.`,
         );
-      } else if (day === 5 && sprintRev < half) {
+      } else if (day === 6 && sprintRev < half) {
         push(
           "critical",
           "target",
@@ -247,7 +232,7 @@ export function generateMemberAlerts(
           "Below the 50% checkpoint",
           `${inr(sprintRev)} of ${inr(half)} expected by week 3.`,
         );
-      } else if (day === 5 && sprintRev < threeQuarter) {
+      } else if (day === 6 && sprintRev < threeQuarter) {
         push(
           "warning",
           "target",
@@ -257,7 +242,7 @@ export function generateMemberAlerts(
         );
       }
     } else if (week === 4) {
-      if (day === 5 && sprintRev < sprintTarget) {
+      if (day === 6 && sprintRev < sprintTarget) {
         push(
           "critical",
           "target",
@@ -385,7 +370,7 @@ function evaluateLogAlerts(
 ): void {
   const todayStr = todayLocalYmd(now);
   const logByDate = new Map(logs.map((l) => [l.date, l] as const));
-  const expected = expectedActivity(pos.week, pos.day);
+  const expected = programDayActivity(pos.week, pos.day);
   const today = logByDate.get(todayStr);
 
   // Universal: no log on a working day that's already underway.
@@ -421,8 +406,8 @@ function evaluateLogAlerts(
     }
   }
 
-  // Week 1: by day 5 there should be at least one recording to review.
-  if (pos.week === 1 && pos.day >= 5) {
+  // Week 1: by day 6 there should be at least one recording to review.
+  if (pos.week === 1 && pos.day >= 6) {
     const anyAudio = logs.some(
       (l) => l.week === 1 && (l.audio_url || l.audio_filename),
     );
@@ -529,7 +514,7 @@ export function generateRepSelfAlerts(
   const dates = logs.map((l) => l.date).filter(Boolean).sort();
   const start = dates[0] ?? todayLocalYmd(now);
   const { week, dayInWeek: day, month } = positionForDate(start, now);
-  const expected = expectedActivity(week, day);
+  const expected = programDayActivity(week, day);
   const todayStr = todayLocalYmd(now);
   const todayLog = logs.find((l) => l.date === todayStr) ?? null;
   const sprintRev = logs.reduce((n, l) => n + (l.sprint_revenue ?? 0), 0);
@@ -566,7 +551,7 @@ export function generateRepSelfAlerts(
       );
     }
   }
-  if (week === 1 && day >= 5) {
+  if (week === 1 && day >= 6) {
     const anyAudio = logs.some(
       (l) => l.week === 1 && (l.audio_url || l.audio_filename),
     );
@@ -576,7 +561,7 @@ export function generateRepSelfAlerts(
         "daily_task",
         "w1-audio",
         "Upload your week-1 recordings",
-        "Days 3 & 4 pitch audio are still missing.",
+        "Days 3–5 pitch audio are still missing.",
       );
     }
   }

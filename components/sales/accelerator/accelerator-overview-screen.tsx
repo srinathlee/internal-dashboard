@@ -1,24 +1,48 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   ChevronRight,
   IndianRupee,
+  Loader2,
   MapPin,
+  MoreHorizontal,
   Plus,
+  Trash2,
   TrendingUp,
   Users,
   Zap,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
 import { isSalesAdminOrSuperAdmin } from "@/lib/access";
 import { errorMessage } from "@/lib/hooks/use-async";
-import { useAcpBatches, useAcpOverview } from "@/lib/hooks/use-accelerator";
+import {
+  useAcpBatches,
+  useAcpMutations,
+  useAcpOverview,
+} from "@/lib/hooks/use-accelerator";
 import type { AcpBatch } from "@/lib/api/sales-accelerator";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +58,8 @@ export function AcceleratorOverviewScreen() {
   const overview = useAcpOverview();
   const batches = useAcpBatches();
   const [showCreate, setShowCreate] = useState(false);
+  // The batch the admin is currently confirming deletion for (null = no dialog).
+  const [deletingBatch, setDeletingBatch] = useState<AcpBatch | null>(null);
 
   if (!auth.isLoaded) {
     return (
@@ -144,7 +170,11 @@ export function AcceleratorOverviewScreen() {
         ) : (
           <div className="mt-3 grid gap-4 lg:grid-cols-2">
             {batchList.map((b) => (
-              <BatchCard key={b.id} batch={b} />
+              <BatchCard
+                key={b.id}
+                batch={b}
+                onDelete={(target) => setDeletingBatch(target)}
+              />
             ))}
           </div>
         )}
@@ -154,6 +184,18 @@ export function AcceleratorOverviewScreen() {
         open={showCreate}
         onOpenChange={setShowCreate}
         onCreated={() => batches.refetch()}
+      />
+
+      <DeleteBatchDialog
+        batch={deletingBatch}
+        open={deletingBatch !== null}
+        onOpenChange={(o) => {
+          if (!o) setDeletingBatch(null);
+        }}
+        onDeleted={() => {
+          void batches.refetch();
+          void overview.refetch();
+        }}
       />
     </div>
   );
@@ -204,13 +246,35 @@ function InlineStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function BatchCard({ batch }: { batch: AcpBatch }) {
+function BatchCard({
+  batch,
+  onDelete,
+}: {
+  batch: AcpBatch;
+  onDelete: (batch: AcpBatch) => void;
+}) {
+  const router = useRouter();
+  const open = () => router.push(`/sales/accelerator/${batch.id}`);
+
   return (
-    <Link
-      href={`/sales/accelerator/${batch.id}`}
+    // Card is a button (not a Link) so the dropdown can sit inside without
+    // nesting interactive elements — clicking the trigger stops propagation
+    // so the menu opens instead of navigating into the batch.
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          open();
+        }
+      }}
+      aria-label={`Open ${batch.name}`}
       className={cn(
-        "group block rounded-xl border border-zinc-200 bg-white p-5 shadow-sm transition-colors",
+        "group block cursor-pointer rounded-xl border border-zinc-200 bg-white p-5 shadow-sm transition-colors",
         "hover:border-violet-300 hover:bg-violet-50/30",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         "dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-violet-900/60 dark:hover:bg-violet-950/10",
       )}
     >
@@ -225,11 +289,43 @@ function BatchCard({ batch }: { batch: AcpBatch }) {
             {batch.location}
           </div>
         </div>
-        {batch.at_risk_count > 0 ? (
-          <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
-            {batch.at_risk_count} at risk
-          </span>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {batch.at_risk_count > 0 ? (
+            <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
+              {batch.at_risk_count} at risk
+            </span>
+          ) : null}
+          {/* Isolate the menu so opening it doesn't navigate into the batch. */}
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                  aria-label={`Actions for ${batch.name}`}
+                >
+                  <MoreHorizontal className="h-4 w-4" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    onDelete(batch);
+                  }}
+                  className="text-rose-600 dark:text-rose-400"
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                  Delete batch
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
       </div>
 
       <div className="mt-5 flex items-end justify-between">
@@ -264,6 +360,145 @@ function BatchCard({ batch }: { batch: AcpBatch }) {
           <ChevronRight className="h-4 w-4" aria-hidden />
         </span>
       </div>
-    </Link>
+    </div>
+  );
+}
+
+/**
+ * Confirm-then-delete dialog for a batch. Requires the admin to type the
+ * batch's exact name before the destructive button enables — meaningful
+ * friction given the server cascades the delete to every member's daily
+ * logs, sprints, and coaching messages.
+ *
+ * The deletion only un-enrols members from the program; their sales `users`
+ * logins and pipeline leads stay intact (parity with the per-member
+ * "Remove from program" action). See
+ * docs/backend-acp-delete-batch.md for the cascade contract.
+ */
+function DeleteBatchDialog({
+  batch,
+  open,
+  onOpenChange,
+  onDeleted,
+}: {
+  batch: AcpBatch | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDeleted: () => void;
+}) {
+  const { deleteBatch } = useAcpMutations();
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  // Reset the typed value whenever the dialog opens/closes so the friction
+  // gate is consistent for every deletion attempt.
+  useEffect(() => {
+    if (!open) setConfirmText("");
+  }, [open]);
+
+  if (!batch) return null;
+
+  const canConfirm = confirmText.trim() === batch.name && !deleting;
+
+  const handleConfirm = async () => {
+    if (!canConfirm) return;
+    setDeleting(true);
+    try {
+      await deleteBatch(batch.id);
+      toast.success("Batch deleted", {
+        description: `${batch.name} and its members were removed.`,
+      });
+      onDeleted();
+      onOpenChange(false);
+    } catch (err) {
+      toast.error("Couldn't delete batch", {
+        description: errorMessage(err),
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Guard against closing mid-request — the optimistic state could
+        // diverge if the server reply lands after the dialog vanishes.
+        if (!deleting) onOpenChange(next);
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+            <AlertTriangle className="h-4 w-4" aria-hidden />
+            Delete batch?
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
+            Permanently delete <strong>{batch.name}</strong> and everything in
+            it:
+          </p>
+          <ul className="ml-1 space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
+            <li>
+              · {batch.total_members} member
+              {batch.total_members === 1 ? "" : "s"}
+            </li>
+            <li>· Their daily logs, sprints, and coaching messages</li>
+          </ul>
+          <p className="text-xs text-zinc-500">
+            Members&apos; sales accounts and pipeline leads are preserved.
+          </p>
+
+          <div className="space-y-1.5 pt-1">
+            <Label htmlFor="confirm-batch-name" className="text-xs">
+              Type{" "}
+              <span className="font-mono text-zinc-700 dark:text-zinc-200">
+                {batch.name}
+              </span>{" "}
+              to confirm
+            </Label>
+            <Input
+              id="confirm-batch-name"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={batch.name}
+              autoComplete="off"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && canConfirm) {
+                  e.preventDefault();
+                  void handleConfirm();
+                }
+              }}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleConfirm}
+            disabled={!canConfirm}
+          >
+            {deleting ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Trash2 className="h-4 w-4" aria-hidden />
+            )}
+            Delete batch
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

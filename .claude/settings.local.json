@@ -16,7 +16,9 @@
       "PowerShell(npm run lint 2>&1)",
       "Bash(./node_modules/.bin/tsc --noEmit)",
       "Bash(echo \"EXIT=$?\")",
-      "Bash(node scripts/extract-logo.mjs)"
+      "Bash(node scripts/extract-logo.mjs)",
+      "Bash(node -e \"for \\(const d of ['2026-05-22','2026-05-25','2026-05-26','2026-05-27','2026-05-28','2026-05-29','2026-06-01']\\) { const dt=new Date\\(d+'T00:00:00'\\); console.log\\(d, dt.toLocaleDateString\\('en-US',{weekday:'long'}\\)\\); }\")",
+      "Bash(node -e ' *)"
     ]
   }
 }

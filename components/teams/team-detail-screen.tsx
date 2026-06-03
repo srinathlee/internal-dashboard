@@ -31,6 +31,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { useAuth } from "@/lib/auth";
 import { getInitials } from "@/lib/format";
 import { errorMessage } from "@/lib/hooks/use-async";
+import { useAcpEnrolledEmails } from "@/lib/hooks/use-accelerator";
 import { useSubadmins, useSubadminMutations } from "@/lib/hooks/use-subadmins";
 import { useTeams, useTeamMutations } from "@/lib/hooks/use-teams";
 import type { ApiSubadmin } from "@/lib/api/types";
@@ -62,6 +63,11 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
   const auth = useAuth();
   const teamsQuery = useTeams();
   const subadminsQuery = useSubadmins({ limit: 200 });
+  // Accelerator trainees are backed by a normal sales login, so they otherwise
+  // leak into this roster. Hide everyone still in the program (and fired reps);
+  // only those graduated to full-time (`tag: converted`) belong here. Interim
+  // client-side filter — see docs/backend-acp-hide-from-sales-lists.md.
+  const acpEnrolledQuery = useAcpEnrolledEmails();
   const subadminMutations = useSubadminMutations();
   const teamMutations = useTeamMutations();
   const router = useRouter();
@@ -86,7 +92,14 @@ export function TeamDetailScreen({ teamId }: TeamDetailScreenProps) {
     () => teamsQuery.data?.find((t) => t.id === teamId) ?? null,
     [teamsQuery.data, teamId],
   );
-  const subadmins = subadminsQuery.data?.sales_subadmins ?? [];
+  const subadmins = useMemo(() => {
+    const all = subadminsQuery.data?.sales_subadmins ?? [];
+    const exclude = acpEnrolledQuery.data;
+    // Filter only once the exclusion set has loaded; null = loading/error, in
+    // which case we show the unfiltered roster rather than risk hiding staff.
+    if (!exclude || exclude.size === 0) return all;
+    return all.filter((u) => !exclude.has(u.email.trim().toLowerCase()));
+  }, [subadminsQuery.data, acpEnrolledQuery.data]);
 
   // Clicking a member row opens their full rep workspace.
   const openMemberDetail = (m: ApiSubadmin) => {

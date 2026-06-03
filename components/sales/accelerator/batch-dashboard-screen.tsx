@@ -276,6 +276,10 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
     });
   }, [memberList, memberFilter, memberQuery]);
 
+  // 6-day week-view (Mon–Sat) ships from the backend: `days[1..6]` each with
+  // its `activity_type` per the program schedule. Per-day rep counts are then
+  // augmented client-side by the `membersByDayInWeek` overlay below so the
+  // tile counts match the current cohort positions exactly.
   const weekDays = useMemo(() => weekView.data?.days ?? [], [weekView.data]);
 
   const selectWeek = (n: number) => {
@@ -823,13 +827,13 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
 
             {/* Day tiles */}
             {weekView.isLoading && !weekView.data ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                {Array.from({ length: 5 }).map((_, i) => (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
+                {Array.from({ length: 6 }).map((_, i) => (
                   <Card key={i} className="h-24 animate-pulse" />
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
                 {weekDays.map((d) => {
                   const isTraining = d.activity_type === "training";
                   return (

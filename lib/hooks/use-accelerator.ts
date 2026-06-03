@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import {
   addAcpMember,
   createAcpBatch,
+  deleteAcpBatch,
   deleteAcpMember,
   getAcpBatch,
   getAcpBatchStats,
@@ -13,6 +14,7 @@ import {
   getAcpMemberMessages,
   getAcpMemberSprints,
   getAcpOverview,
+  getAcpProgramConfig,
   getAcpWeekView,
   getMyAcpDailyLogs,
   getMyAcpMessages,
@@ -23,11 +25,13 @@ import {
   setAcpMemberPassword,
   setAcpMemberTag,
   setAcpReview,
+  updateAcpMember,
   uploadMyAcpDayAudio,
   type AcpReview,
   type AcpTag,
   type AddMemberInput,
   type CreateBatchInput,
+  type UpdateAcpMemberInput,
 } from "@/lib/api/sales-accelerator";
 
 import { useAsync } from "./use-async";
@@ -35,6 +39,16 @@ import { useAsync } from "./use-async";
 /** Program overview — top stats + top performer. */
 export function useAcpOverview() {
   return useAsync((signal) => getAcpOverview(signal), []);
+}
+
+/**
+ * Program-level config — week titles, default targets, duration, day-type
+ * schedule. Used by the add-member + create-batch modals so the "₹10K / ₹1.1L
+ * / 2 months" copy isn't hardcoded. Callers should still keep a sensible
+ * fallback in case the endpoint is unavailable on an older backend.
+ */
+export function useAcpProgramConfig() {
+  return useAsync((signal) => getAcpProgramConfig(signal), []);
 }
 
 /** Batch cards on the overview page. */
@@ -63,6 +77,41 @@ export function useAcpMembers(batchId: string | null) {
       batchId ? listAcpMembers(batchId, signal) : Promise.resolve(null),
     [batchId],
   );
+}
+
+/**
+ * Lower-cased emails of every Accelerator trainee who has **not** graduated to
+ * full-time (`tag !== "converted"`) — i.e. in-program *and* fired reps.
+ *
+ * Used as a client-side exclusion set to hide those trainees from the normal
+ * sales dashboard, which can't otherwise tell them apart from staff (an ACP
+ * member is backed by a real sales `users` login). This is an interim stopgap
+ * for the one surface that exposes per-rep emails — the Sales team members
+ * table; the durable fix is server-side (see
+ * docs/backend-acp-hide-from-sales-lists.md), after which this set will simply
+ * stop matching anything.
+ *
+ * `data` is the `Set<string>` once loaded, or `null` while loading / on error.
+ * Callers must treat `null` as "no exclusions yet" so an ACP fetch failure
+ * never accidentally hides a normal rep. Admin-only data — callers are already
+ * admin-gated.
+ */
+export function useAcpEnrolledEmails() {
+  return useAsync<Set<string>>(async (signal) => {
+    const emails = new Set<string>();
+    const batches = await listAcpBatches(signal);
+    const lists = await Promise.all(
+      batches.map((b) => listAcpMembers(b.id, signal)),
+    );
+    for (const members of lists) {
+      for (const m of members) {
+        if (m.tag !== "converted" && m.email) {
+          emails.add(m.email.trim().toLowerCase());
+        }
+      }
+    }
+    return emails;
+  }, []);
 }
 
 /** Week board — only fetches once a week is selected. */
@@ -147,6 +196,10 @@ export function useAcpMutations() {
       (batchId: string, input: AddMemberInput) => addAcpMember(batchId, input),
       [],
     ),
+    deleteBatch: useCallback(
+      (batchId: string) => deleteAcpBatch(batchId),
+      [],
+    ),
     deleteMember: useCallback(
       (memberId: string) => deleteAcpMember(memberId),
       [],
@@ -161,6 +214,11 @@ export function useAcpMutations() {
     ),
     setNote: useCallback(
       (memberId: string, note: string) => setAcpMemberNote(memberId, note),
+      [],
+    ),
+    updateMember: useCallback(
+      (memberId: string, input: UpdateAcpMemberInput) =>
+        updateAcpMember(memberId, input),
       [],
     ),
     setPassword: useCallback(

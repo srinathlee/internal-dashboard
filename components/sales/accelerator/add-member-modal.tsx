@@ -15,8 +15,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/hooks/use-async";
-import { useAcpMutations } from "@/lib/hooks/use-accelerator";
+import {
+  useAcpMutations,
+  useAcpProgramConfig,
+} from "@/lib/hooks/use-accelerator";
 import { cn } from "@/lib/utils";
+
+import { acpFmt } from "./acp-shared";
 
 interface AddMemberModalProps {
   open: boolean;
@@ -52,6 +57,13 @@ export function AddMemberModal({
   onAdded,
 }: AddMemberModalProps) {
   const { addMember } = useAcpMutations();
+  // Program duration + default targets come from the server (GET /acp/program/config).
+  // Fall back to the historical hardcoded values if the endpoint isn't reachable
+  // yet, so the modal still works against an older backend deploy.
+  const programConfig = useAcpProgramConfig();
+  const durationMonths = programConfig.data?.duration_months ?? 2;
+  const sprintTarget = programConfig.data?.default_sprint_target ?? 10000;
+  const revenueTarget = programConfig.data?.default_revenue_target ?? 110000;
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -69,7 +81,7 @@ export function AddMemberModal({
   // naturally so the dates stay correct across day boundaries.
   const start = new Date();
   const end = new Date(start);
-  end.setMonth(end.getMonth() + 2);
+  end.setMonth(end.getMonth() + durationMonths);
   const joining = fmtDate(start);
   const ending = fmtDate(end);
 
@@ -139,7 +151,7 @@ export function AddMemberModal({
             <div className="w-full rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-left text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
               <Row label="Joining date" value={joining} />
               <Row label="Ending date" value={ending} />
-              <Row label="Duration" value="2 months" />
+              <Row label="Duration" value={`${durationMonths} months`} />
             </div>
             <p className="flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="h-4 w-4" aria-hidden />
@@ -213,7 +225,7 @@ export function AddMemberModal({
                 <dl className="mt-2 space-y-1.5 text-zinc-600 dark:text-zinc-300">
                   <Row label="Joining date" value={joining} />
                   <Row label="Ending date" value={ending} />
-                  <Row label="Duration" value="2 months" />
+                  <Row label="Duration" value={`${durationMonths} months`} />
                 </dl>
               </div>
 
@@ -222,8 +234,14 @@ export function AddMemberModal({
                   Targets (default)
                 </div>
                 <dl className="mt-2 space-y-1.5 text-zinc-600 dark:text-zinc-300">
-                  <Row label="Month 1 — Sprint amount" value="₹10.0K" />
-                  <Row label="Month 2 — Revenue generation" value="₹1.1L" />
+                  <Row
+                    label="Month 1 — Sprint amount"
+                    value={acpFmt(sprintTarget)}
+                  />
+                  <Row
+                    label="Month 2 — Revenue generation"
+                    value={acpFmt(revenueTarget)}
+                  />
                 </dl>
               </div>
 

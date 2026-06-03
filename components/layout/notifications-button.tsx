@@ -5,9 +5,11 @@ import { Bell, Clock, MessageSquare, X, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/lib/auth";
-import { isOnSales } from "@/lib/access";
+import { isOnSales, isSalesMember } from "@/lib/access";
 import { cn } from "@/lib/utils";
+import { ApiError } from "@/lib/api/client";
 import { errorMessage } from "@/lib/hooks/use-async";
+import { useMyAcpMessages } from "@/lib/hooks/use-accelerator";
 import {
   useNotificationCount,
   useNotificationMutations,
@@ -29,6 +31,30 @@ export function NotificationsButton() {
   // Gate before mounting the polling hooks so non-sales users never hit the
   // sales-only endpoint. The inner component owns all notification state.
   if (!isOnSales(auth)) return null;
+  // Accelerator reps get the (rare) general notifications folded into their
+  // Accelerator alert bell, so this standalone bell is suppressed for them to
+  // avoid two bells. Only sales members can be ACP reps; admins/super-admins
+  // always keep the dedicated bell.
+  if (isSalesMember(auth)) return <MemberNotificationsGate />;
+  return <NotificationsBell />;
+}
+
+/**
+ * For sales members, only show the standalone notifications bell once we know
+ * the member ISN'T an Accelerator rep — enrolled reps see notifications inside
+ * the Accelerator alert bell instead (see {@link AcpAlertsButton}). Enrollment
+ * keys off the proven `/acp/me/messages` signal, the same gate the rest of the
+ * rep-side header controls use. Rendering nothing until that resolves avoids a
+ * brief two-bell flash for reps.
+ */
+function MemberNotificationsGate() {
+  const enrollment = useMyAcpMessages();
+  const notAcpMember =
+    enrollment.error instanceof ApiError &&
+    (enrollment.error.status === 404 ||
+      enrollment.error.status === 401 ||
+      enrollment.error.status === 403);
+  if (!notAcpMember) return null;
   return <NotificationsBell />;
 }
 

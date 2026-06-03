@@ -160,6 +160,35 @@ export interface AcpWeekView {
   days: AcpWeekDay[];
 }
 
+export interface AcpProgramWeekTitle {
+  week: number;
+  title: string;
+  subtitle?: string;
+}
+
+export interface AcpProgramDaySchedule {
+  week: number;
+  day: number;
+  activity_type: AcpActivity;
+}
+
+/**
+ * Program-level constants served by `GET /acp/program/config` so the FE
+ * doesn't need to hardcode week titles, default targets, duration, etc.
+ * Falls back to the FE-local defaults when this endpoint is unavailable
+ * (older backend deploys).
+ */
+export interface AcpProgramConfig {
+  weeks: number;
+  days_per_week: number;
+  rest_days: string[];
+  duration_months: number;
+  default_sprint_target: number;
+  default_revenue_target: number;
+  week_titles: AcpProgramWeekTitle[];
+  day_schedule: AcpProgramDaySchedule[];
+}
+
 export interface CreateBatchInput {
   name: string;
   location: string;
@@ -173,6 +202,23 @@ export interface AddMemberInput {
   sprint_target?: number;
   revenue_target?: number;
   joined_at?: string;
+}
+
+/**
+ * Partial-update shape for editing an existing Accelerator member's profile
+ * from the admin rep-account screen. Missing keys are left untouched on the
+ * server. `joined_at` is intentionally excluded — changing the program-start
+ * date out from under a rep would reshuffle every week/day label. The backend
+ * must mirror `name` / `phone` / `email` updates onto the rep's `users` row,
+ * dedupe `email` against existing logins, and validate format (see
+ * docs/backend-acp-update-member-profile.md).
+ */
+export interface UpdateAcpMemberInput {
+  name?: string;
+  email?: string;
+  phone?: string;
+  sprint_target?: number;
+  revenue_target?: number;
 }
 
 export interface AcpSprint {
@@ -393,6 +439,35 @@ function normalizeDailyLog(raw: Record<string, unknown>): AcpDailyLog {
   };
 }
 
+function normalizeProgramConfig(raw: Record<string, unknown>): AcpProgramConfig {
+  const titles = Array.isArray(raw.week_titles) ? raw.week_titles : [];
+  const schedule = Array.isArray(raw.day_schedule) ? raw.day_schedule : [];
+  return {
+    weeks: num(raw.weeks),
+    days_per_week: num(raw.days_per_week),
+    rest_days: Array.isArray(raw.rest_days)
+      ? (raw.rest_days as unknown[]).map((x) => String(x).toLowerCase())
+      : [],
+    duration_months: num(raw.duration_months),
+    default_sprint_target: num(raw.default_sprint_target),
+    default_revenue_target: num(raw.default_revenue_target),
+    week_titles: titles
+      .filter((t): t is Record<string, unknown> => !!t && typeof t === "object")
+      .map((t) => ({
+        week: num(t.week),
+        title: String(t.title ?? ""),
+        subtitle: typeof t.subtitle === "string" ? t.subtitle : undefined,
+      })),
+    day_schedule: schedule
+      .filter((d): d is Record<string, unknown> => !!d && typeof d === "object")
+      .map((d) => ({
+        week: num(d.week),
+        day: num(d.day),
+        activity_type: normActivity(d.activity_type),
+      })),
+  };
+}
+
 function emptyReviewCounts(): Record<AcpReview, number> {
   return { working_fine: 0, observation: 0, retrain: 0 };
 }
@@ -452,16 +527,28 @@ function normalizeWeekRep(raw: Record<string, unknown>): AcpWeekDayRep {
 }
 
 function normalizeWeekView(raw: Record<string, unknown>): AcpWeekView {
-  const daysObj = (raw.days ?? {}) as Record<string, unknown>;
-  const days: AcpWeekDay[] = Object.keys(daysObj)
-    .map((k) => Number(k))
-    .filter((n) => Number.isFinite(n))
-    .sort((a, b) => a - b)
-    .map((dayNum) => {
-      const d = (daysObj[String(dayNum)] ?? {}) as Record<string, unknown>;
+  // Accept both shapes:
+  //   - array of `{ day, activity_type, is_training_day, reps, ... }` (current)
+  //   - legacy object keyed by "1".."5" with day data as values
+  // so a brief deploy skew between FE/BE never breaks the Weekly board.
+  let dayEntries: Record<string, unknown>[] = [];
+  const rawDays = raw.days;
+  if (Array.isArray(rawDays)) {
+    dayEntries = rawDays.map((d) => (d ?? {}) as Record<string, unknown>);
+  } else if (rawDays && typeof rawDays === "object") {
+    const obj = rawDays as Record<string, unknown>;
+    dayEntries = Object.keys(obj).map((k) => ({
+      day: Number(k),
+      ...((obj[k] ?? {}) as Record<string, unknown>),
+    }));
+  }
+  const days: AcpWeekDay[] = dayEntries
+    .filter((d) => Number.isFinite(Number(d.day)))
+    .sort((a, b) => Number(a.day) - Number(b.day))
+    .map((d) => {
       const reps = Array.isArray(d.reps) ? d.reps : [];
       return {
-        day: dayNum,
+        day: Number(d.day),
         activity_type: normActivity(d.type ?? d.activity_type),
         is_training_day: Boolean(d.is_training_day),
         reps: reps.map((r) => normalizeWeekRep(r as Record<string, unknown>)),
@@ -471,7 +558,11 @@ function normalizeWeekView(raw: Record<string, unknown>): AcpWeekView {
     week: num(raw.week),
     title: typeof raw.title === "string" ? raw.title : undefined,
     description:
-      typeof raw.description === "string" ? raw.description : undefined,
+      typeof raw.subtitle === "string"
+        ? raw.subtitle
+        : typeof raw.description === "string"
+          ? raw.description
+          : undefined,
     days,
   };
 }
@@ -552,9 +643,16 @@ export function getAcpBatch(
 export function deleteAcpBatch(batchId: string): Promise<void> {
   return withFallback(
     () =>
-      apiData<void>(`${BASE}/batches/${batchId}`, { method: "DELETE" }).then(
-        () => undefined,
-      ),
+      apiData<void>(`${BASE}/batches/${batchId}`, { method: "DELETE" })
+        .then(() => undefined)
+        .catch((err) => {
+          // Idempotent: a 404 means the batch is already gone (repeat click,
+          // flapping network, stale tab). Treat as success so admins don't
+          // see a spurious error toast. Matches the backend contract in
+          // docs/backend-acp-delete-batch.md §Idempotency.
+          if (err instanceof ApiError && err.status === 404) return undefined;
+          throw err;
+        }),
     () => undefined,
   );
 }
@@ -572,9 +670,14 @@ export function deleteAcpBatch(batchId: string): Promise<void> {
 export function deleteAcpMember(memberId: string): Promise<void> {
   return withFallback(
     () =>
-      apiData<void>(`${BASE}/members/${memberId}`, { method: "DELETE" }).then(
-        () => undefined,
-      ),
+      apiData<void>(`${BASE}/members/${memberId}`, { method: "DELETE" })
+        .then(() => undefined)
+        .catch((err) => {
+          // Idempotent: a 404 means the member is already un-enrolled — treat
+          // as success so a repeat click / network retry isn't an error.
+          if (err instanceof ApiError && err.status === 404) return undefined;
+          throw err;
+        }),
     () => undefined,
   );
 }
@@ -631,6 +734,19 @@ export function getAcpWeekView(
         signal,
       }).then(normalizeWeekView),
     () => mock.weekView(batchId, week),
+  );
+}
+
+/**
+ * Program-level constants (week titles, default targets, duration, day-type
+ * schedule). Lets the FE drop the hardcoded "₹10K / ₹1.1L / 2 months" values
+ * sprinkled across the add-member + create-batch modals. Admin-only.
+ */
+export function getAcpProgramConfig(
+  signal?: AbortSignal,
+): Promise<AcpProgramConfig> {
+  return apiData<Raw>(`${BASE}/program/config`, { signal }).then(
+    normalizeProgramConfig,
   );
 }
 
@@ -707,6 +823,27 @@ export function setAcpMemberTag(
         };
       }),
     () => mock.setTag(memberId, tag),
+  );
+}
+
+/**
+ * Edit a member's profile (admin-only) — `PATCH /acp/members/:memberId` with
+ * any subset of `name` / `phone` / `sprint_target` / `revenue_target`. The
+ * server should also sync `name`/`phone` to the underlying `users` row so the
+ * Teams / Performance / target-board views stay consistent. See
+ * docs/backend-acp-update-member-profile.md for the contract.
+ */
+export function updateAcpMember(
+  memberId: string,
+  input: UpdateAcpMemberInput,
+): Promise<AcpMember> {
+  return withFallback(
+    () =>
+      apiData<Raw>(`${BASE}/members/${memberId}`, {
+        method: "PATCH",
+        body: input,
+      }).then((r) => normalizeMember(r)),
+    () => mock.updateMember(memberId, input),
   );
 }
 
@@ -1514,6 +1651,28 @@ const mock = {
       rec.member.note_updated_at = now;
     }
     return { note, note_updated_at: now };
+  },
+
+  updateMember(memberId: string, input: UpdateAcpMemberInput): AcpMember {
+    const rec = store.records.get(memberId);
+    if (!rec) throw new ApiError(404, "Member not found", null);
+    if (input.name !== undefined) rec.member.name = input.name;
+    if (input.email !== undefined) rec.member.email = input.email;
+    if (input.phone !== undefined) rec.member.phone = input.phone;
+    if (input.sprint_target !== undefined) {
+      rec.member.sprint_target = input.sprint_target;
+      rec.member.month1_pct =
+        input.sprint_target > 0
+          ? Math.min(
+              100,
+              Math.round((rec.member.sprint_revenue / input.sprint_target) * 100),
+            )
+          : 0;
+    }
+    if (input.revenue_target !== undefined) {
+      rec.member.revenue_target = input.revenue_target;
+    }
+    return { ...rec.member };
   },
 
   message(): { success: true } {

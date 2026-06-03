@@ -88,16 +88,10 @@ export function RepDetailPanel({
   const [tagging, setTagging] = useState(false);
 
   const m = member.data;
-  // Prefer the server-computed program position; fall back to client calc.
-  const repWeek = m
-    ? m.current_week != null
-      ? {
-          week: m.current_week,
-          dayInWeek: m.current_day ?? 1,
-          month: (m.current_month ?? (m.current_week <= 4 ? 1 : 2)) as 1 | 2,
-        }
-      : getRepWeek(m.joined_at)
-    : null;
+  // Derived from joined_at with business-day math (weekends skipped), not the
+  // server's calendar-day current_week/current_day — see
+  // docs/backend-acp-business-day-program-position.md.
+  const repWeek = m ? getRepWeek(m.joined_at) : null;
 
   const handleTag = async (tag: AcpTag) => {
     if (!memberId || !m || tag === m.tag) return;
@@ -181,17 +175,17 @@ export function RepDetailPanel({
     };
   }, [logs]);
 
-  // Decorate logs with week/day computed from joined_at + date — the live API
-  // doesn't always echo `week`/`day_in_week` on the per-member log feed.
+  // Decorate logs with week/day computed from joined_at + date. Always recompute
+  // (business-day calendar) so labels match `repWeek`, even when the backend
+  // echoes calendar-day week/day on the per-member log feed.
   const decoratedLogs = useMemo(() => {
     if (!m) return logs;
     return logs.map((l) => {
-      if (l.week && l.day_in_week) return l;
       const wd = weekDayForDate(m.joined_at, l.date);
       return {
         ...l,
-        week: l.week || wd.week,
-        day_in_week: l.day_in_week || wd.dayInWeek,
+        week: wd.week,
+        day_in_week: wd.dayInWeek,
       };
     });
   }, [logs, m]);

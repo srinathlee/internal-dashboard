@@ -10,6 +10,7 @@ import {
   KeyRound,
   Loader2,
   Mail,
+  Pencil,
   Phone,
   Trash2,
   UserCircle,
@@ -26,6 +27,11 @@ import { isSalesAdminOrSuperAdmin } from "@/lib/access";
 import { getInitials } from "@/lib/format";
 import { errorMessage } from "@/lib/hooks/use-async";
 import { useAcpMember, useAcpMutations } from "@/lib/hooks/use-accelerator";
+import type {
+  AcpMember,
+  UpdateAcpMemberInput,
+} from "@/lib/api/sales-accelerator";
+import { ApiError } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { PasswordRevealCard } from "@/components/teams/password-reveal-card";
 
@@ -66,11 +72,6 @@ export function RepAccountScreen({
   }
 
   const fired = m?.status === "inactive" || m?.tag === "fired";
-  const repWeek = m
-    ? m.current_week != null
-      ? { week: m.current_week, dayInWeek: m.current_day ?? 1, month: m.current_month ?? 1 }
-      : getRepWeek(m.joined_at)
-    : null;
 
   return (
     <div className="space-y-6">
@@ -138,70 +139,11 @@ export function RepAccountScreen({
             </div>
           </div>
 
-          {/* Account details */}
-          <Card className="p-6 sm:p-8">
-            <div className="space-y-1">
-              <h2 className="flex items-center gap-2 text-lg font-medium tracking-tight">
-                <UserCircle className="h-4 w-4 text-zinc-500" aria-hidden />
-                Account details
-              </h2>
-              <p className="text-sm text-zinc-500">
-                Read-only — edit a rep&apos;s name, phone or targets when adding
-                them to a batch.
-              </p>
-            </div>
-
-            <dl className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              <Detail label="Full name">
-                <span className="text-sm">{m.name}</span>
-              </Detail>
-              <Detail label="Email">
-                <span className="inline-flex items-center gap-1.5 text-sm">
-                  <Mail className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
-                  {m.email || "—"}
-                </span>
-              </Detail>
-              <Detail label="Phone">
-                <span className="inline-flex items-center gap-1.5 text-sm">
-                  <Phone className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
-                  {m.phone || "—"}
-                </span>
-              </Detail>
-              <Detail label="Batch">
-                <span className="text-sm">{m.batch_name ?? "—"}</span>
-              </Detail>
-              <Detail label="Joined">
-                <span className="text-sm tabular-nums">
-                  {m.joined_at.slice(0, 10)}
-                </span>
-              </Detail>
-              <Detail label="Program week">
-                <span className="text-sm tabular-nums">
-                  {repWeek
-                    ? `M${repWeek.month} · W${repWeek.week} Day ${repWeek.dayInWeek}`
-                    : "—"}
-                </span>
-              </Detail>
-              <Detail label="Sprint target">
-                <span className="text-sm tabular-nums">
-                  {acpFmt(m.sprint_target)}
-                </span>
-              </Detail>
-              <Detail label="Revenue target">
-                <span className="text-sm tabular-nums">
-                  {acpFmt(m.revenue_target)}
-                </span>
-              </Detail>
-              <Detail label="Member ID">
-                <span
-                  className="font-mono text-xs text-zinc-700 dark:text-zinc-300"
-                  title={m.id}
-                >
-                  {m.id}
-                </span>
-              </Detail>
-            </dl>
-          </Card>
+          {/* Account details — admin-editable name / phone / targets. */}
+          <AccountDetailsCard
+            member={m}
+            onUpdated={() => void member.refetch()}
+          />
 
           {/* Set password */}
           <SetPasswordCard
@@ -236,6 +178,295 @@ function Detail({
       </dt>
       <dd className="mt-1 truncate">{children}</dd>
     </div>
+  );
+}
+
+/**
+ * Account details card. Click **Edit** to turn `name` / `phone` /
+ * `sprint_target` / `revenue_target` into inputs; **Save** PATCHes the member
+ * and re-fetches. Email and program/batch info stay read-only on purpose —
+ * email is the login identifier, and joined-at / program week / member id are
+ * either historical or system-derived.
+ */
+function AccountDetailsCard({
+  member,
+  onUpdated,
+}: {
+  member: AcpMember;
+  onUpdated: () => void;
+}) {
+  const { updateMember } = useAcpMutations();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState(member.name);
+  const [email, setEmail] = useState(member.email ?? "");
+  const [phone, setPhone] = useState(member.phone ?? "");
+  const [sprintTarget, setSprintTarget] = useState(
+    String(member.sprint_target),
+  );
+  const [revenueTarget, setRevenueTarget] = useState(
+    String(member.revenue_target),
+  );
+
+  // Business-day program position from joined_at (Sunday skipped) — see
+  // docs/backend-acp-business-day-program-position.md.
+  const repWeek = getRepWeek(member.joined_at);
+
+  const enterEdit = () => {
+    setName(member.name);
+    setEmail(member.email ?? "");
+    setPhone(member.phone ?? "");
+    setSprintTarget(String(member.sprint_target));
+    setRevenueTarget(String(member.revenue_target));
+    setEditing(true);
+  };
+
+  const cancel = () => setEditing(false);
+
+  const save = async () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      toast.error("Full name is required");
+      return;
+    }
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      toast.error("Email is required");
+      return;
+    }
+    // Cheap shape check — the backend still enforces real format + uniqueness.
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast.error("Enter a valid email address");
+      return;
+    }
+    const sprintN = Number(sprintTarget);
+    const revenueN = Number(revenueTarget);
+    if (
+      !Number.isFinite(sprintN) ||
+      sprintN <= 0 ||
+      !Number.isInteger(sprintN)
+    ) {
+      toast.error("Sprint target must be a positive whole number");
+      return;
+    }
+    if (
+      !Number.isFinite(revenueN) ||
+      revenueN <= 0 ||
+      !Number.isInteger(revenueN)
+    ) {
+      toast.error("Revenue target must be a positive whole number");
+      return;
+    }
+
+    // Send only the fields that actually changed — keeps the audit trail clean
+    // and lets the backend skip work it doesn't need to do.
+    const patch: UpdateAcpMemberInput = {};
+    if (trimmedName !== member.name) patch.name = trimmedName;
+    // Compare emails case-insensitively so toggling case alone isn't a write.
+    if (
+      trimmedEmail.toLowerCase() !== (member.email ?? "").toLowerCase()
+    ) {
+      patch.email = trimmedEmail;
+    }
+    const trimmedPhone = phone.trim();
+    if (trimmedPhone !== (member.phone ?? "")) patch.phone = trimmedPhone;
+    if (sprintN !== member.sprint_target) patch.sprint_target = sprintN;
+    if (revenueN !== member.revenue_target) patch.revenue_target = revenueN;
+
+    if (Object.keys(patch).length === 0) {
+      setEditing(false);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await updateMember(member.id, patch);
+      toast.success("Profile updated", {
+        description: `${trimmedName}'s account details have been saved.`,
+      });
+      onUpdated();
+      setEditing(false);
+    } catch (err) {
+      // The server returns `code: "EMAIL_TAKEN"` (409) when the requested email
+      // is already in use by another login — surface that precisely so the
+      // admin knows it's the email that needs to change, not retry-the-same.
+      if (err instanceof ApiError && err.code === "EMAIL_TAKEN") {
+        toast.error("Email already in use", {
+          description:
+            "That email belongs to another login — try a different one.",
+        });
+      } else {
+        toast.error("Couldn't update profile", {
+          description: errorMessage(err),
+        });
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="p-6 sm:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h2 className="flex items-center gap-2 text-lg font-medium tracking-tight">
+            <UserCircle className="h-4 w-4 text-zinc-500" aria-hidden />
+            Account details
+          </h2>
+          <p className="text-sm text-zinc-500">
+            {editing
+              ? "Edit the rep's name, email, phone, or targets. Joined date, program week, batch and member ID stay fixed."
+              : "Update the rep's name, email, phone, or targets. Joined date, program week, batch and member ID stay fixed."}
+          </p>
+        </div>
+        {!editing ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={enterEdit}
+          >
+            <Pencil className="h-3.5 w-3.5" aria-hidden />
+            Edit
+          </Button>
+        ) : null}
+      </div>
+
+      <dl className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <Detail label="Full name">
+          {editing ? (
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="h-9 text-sm"
+              placeholder="Enter name"
+              autoFocus
+            />
+          ) : (
+            <span className="text-sm">{member.name}</span>
+          )}
+        </Detail>
+        <Detail label="Email">
+          {editing ? (
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="h-9 text-sm"
+              placeholder="name@email.com"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-sm">
+              <Mail className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
+              {member.email || "—"}
+            </span>
+          )}
+        </Detail>
+        <Detail label="Phone">
+          {editing ? (
+            <Input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="h-9 text-sm"
+              placeholder="+91 98765 43210"
+            />
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-sm">
+              <Phone className="h-3.5 w-3.5 text-zinc-400" aria-hidden />
+              {member.phone || "—"}
+            </span>
+          )}
+        </Detail>
+        <Detail label="Batch">
+          <span className="text-sm">{member.batch_name ?? "—"}</span>
+        </Detail>
+        <Detail label="Joined">
+          <span className="text-sm tabular-nums">
+            {member.joined_at.slice(0, 10)}
+          </span>
+        </Detail>
+        <Detail label="Program week">
+          <span className="text-sm tabular-nums">
+            {`M${repWeek.month} · W${repWeek.week} Day ${repWeek.dayInWeek}`}
+          </span>
+        </Detail>
+        <Detail label="Sprint target">
+          {editing ? (
+            <div className="relative">
+              <span
+                aria-hidden
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400"
+              >
+                ₹
+              </span>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={sprintTarget}
+                onChange={(e) => setSprintTarget(e.target.value)}
+                className="h-9 pl-6 text-sm tabular-nums"
+              />
+            </div>
+          ) : (
+            <span className="text-sm tabular-nums">
+              {acpFmt(member.sprint_target)}
+            </span>
+          )}
+        </Detail>
+        <Detail label="Revenue target">
+          {editing ? (
+            <div className="relative">
+              <span
+                aria-hidden
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400"
+              >
+                ₹
+              </span>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={revenueTarget}
+                onChange={(e) => setRevenueTarget(e.target.value)}
+                className="h-9 pl-6 text-sm tabular-nums"
+              />
+            </div>
+          ) : (
+            <span className="text-sm tabular-nums">
+              {acpFmt(member.revenue_target)}
+            </span>
+          )}
+        </Detail>
+        <Detail label="Member ID">
+          <span
+            className="font-mono text-xs text-zinc-700 dark:text-zinc-300"
+            title={member.id}
+          >
+            {member.id}
+          </span>
+        </Detail>
+      </dl>
+
+      {editing ? (
+        <div className="mt-6 flex items-center justify-end gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={cancel}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button type="button" onClick={save} disabled={saving}>
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save changes
+          </Button>
+        </div>
+      ) : null}
+    </Card>
   );
 }
 
