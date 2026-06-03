@@ -320,19 +320,25 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
       ? weekDays.find((d) => d.day === selectedDay) ?? null
       : null;
 
-  // Reps shown in the open field-day table: members the backend logged for that
-  // day, plus any cohort members currently positioned on it who haven't logged
-  // yet (as a zero-state row) — so the table matches the tile count instead of
-  // reading "no reps logged" for a cohort that has only just reached this day.
+  // Reps shown in the open field-day table. This board is a *current-position*
+  // snapshot: each rep sits on exactly the one day tile they're on today, the
+  // same `membersByDayInWeek` overlay that drives the tile counts — so the
+  // table always matches the count and never lists the same rep twice. Each
+  // rep is enriched with their backend-logged data for this day if they've
+  // already logged it; otherwise it's a zero-state row. A rep who logged on an
+  // earlier day this week and has since rolled forward is NOT pulled back onto
+  // that earlier day — the board reflects where they are now, not their history.
   const selectedDayReps: AcpWeekDayRep[] = (() => {
     if (!selectedDayData || selectedDayData.activity_type === "training") {
       return [];
     }
-    const reps = [...selectedDayData.reps];
-    const seen = new Set(reps.map((r) => r.member_id));
-    for (const m of membersByDayInWeek.get(selectedDayData.day) ?? []) {
-      if (seen.has(m.id)) continue;
-      reps.push({
+    const loggedById = new Map(
+      selectedDayData.reps.map((r) => [r.member_id, r] as const),
+    );
+    return (membersByDayInWeek.get(selectedDayData.day) ?? []).map((m) => {
+      const logged = loggedById.get(m.id);
+      if (logged) return logged;
+      return {
         member_id: m.id,
         name: m.name,
         tag: m.tag,
@@ -341,9 +347,8 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
         has_audio: false,
         visited_count: 0,
         sprint_accepted_count: 0,
-      });
-    }
-    return reps;
+      };
+    });
   })();
 
   // Active members whose latest review matches the open review card.
@@ -883,7 +888,7 @@ export function BatchDashboardScreen({ batchId }: { batchId: string }) {
 
                 {selectedDayReps.length === 0 ? (
                   <div className="p-8 text-center text-sm text-zinc-500">
-                    No reps logged this day.
+                    No reps on this day.
                   </div>
                 ) : (
                   <>
