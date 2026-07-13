@@ -18,7 +18,7 @@ Base URL: `/api/v1/sales` · Auth: `Authorization: Bearer <token>` (HttpOnly coo
 Uploading from the rep dialog fires:
 
 ```
-POST https://server.nyraai.io/api/v1/sales/acp/me/daily-logs/audio
+POST http://localhost:4000/api/v1/sales/acp/me/daily-logs/audio
 → 404 Not Found        (Content-Length 117 — a small JSON "not found" body)
 ```
 

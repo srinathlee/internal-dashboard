@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, ShieldCheck, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,6 +10,26 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
 import { Logo } from "@/components/layout/logo";
+
+/** One-click demo accounts so reviewers can explore without credentials. */
+const DEMO_ACCOUNTS = [
+  {
+    key: "admin",
+    label: "Sign in as Admin",
+    sublabel: "Full access — teams, targets, hospitals",
+    email: "ram@gmail.com",
+    icon: ShieldCheck,
+  },
+  {
+    key: "rep",
+    label: "Sign in as Sales Rep",
+    sublabel: "Field view — leads, follow-ups, targets",
+    email: "ravi@myteamflow.com",
+    icon: UserRound,
+  },
+] as const;
+
+const DEMO_PASSWORD = "demo1234";
 
 export function LoginScreen() {
   const auth = useAuth();
@@ -19,6 +39,7 @@ export function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [demoSubmitting, setDemoSubmitting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Already signed in? Bounce to performance.
@@ -27,6 +48,23 @@ export function LoginScreen() {
       router.replace("/performance");
     }
   }, [auth.isLoaded, auth.user, router]);
+
+  const handleDemoSignIn = async (account: (typeof DEMO_ACCOUNTS)[number]) => {
+    if (submitting || demoSubmitting) return;
+    setError(null);
+    setDemoSubmitting(account.key);
+    try {
+      await auth.signIn(account.email, DEMO_PASSWORD);
+      router.replace("/performance");
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Demo sign in failed. Check your network and try again.";
+      setError(message);
+      setDemoSubmitting(null);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,7 +115,7 @@ export function LoginScreen() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
-                placeholder="you@nyra.ai"
+                placeholder="you@company.com"
                 autoFocus
               />
             </div>
@@ -118,12 +156,54 @@ export function LoginScreen() {
             <Button
               type="submit"
               className="h-10 w-full"
-              disabled={submitting}
+              disabled={submitting || demoSubmitting !== null}
             >
               {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Sign in
             </Button>
           </form>
+
+          {/* Demo access for reviewers — no credentials needed */}
+          <div className="mt-7">
+            <div className="flex items-center gap-3">
+              <span className="h-px flex-1 bg-border" />
+              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
+                or explore a demo
+              </span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            <div className="mt-4 grid gap-2.5">
+              {DEMO_ACCOUNTS.map((account) => {
+                const Icon = account.icon;
+                const loading = demoSubmitting === account.key;
+                return (
+                  <Button
+                    key={account.key}
+                    type="button"
+                    variant="outline"
+                    className="h-auto w-full justify-start gap-3 px-4 py-3"
+                    disabled={submitting || demoSubmitting !== null}
+                    onClick={() => handleDemoSignIn(account)}
+                  >
+                    {loading ? (
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                    ) : (
+                      <Icon className="h-4 w-4 shrink-0 text-zinc-500" />
+                    )}
+                    <span className="flex flex-col items-start">
+                      <span className="text-sm font-medium">{account.label}</span>
+                      <span className="text-xs font-normal text-zinc-500">
+                        {account.sublabel}
+                      </span>
+                    </span>
+                  </Button>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-center text-xs text-zinc-500">
+              Demo environment with sample data — resets periodically.
+            </p>
+          </div>
         </Card>
       </div>
     </main>

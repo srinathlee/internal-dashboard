@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { isSalesMember } from "@/lib/access";
 import { DesktopSidebar } from "./sidebar";
 import { Header } from "./header";
-import { NyraLoader } from "./nyra-loader";
+import { AppLoader } from "./app-loader";
 
 const SALES_MEMBER_HOME = "/hospitals";
 
@@ -58,13 +58,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }, [auth, pathname, router]);
 
   if (!auth.isLoaded || !auth.user) {
-    return <NyraLoader />;
+    return <AppLoader />;
   }
 
   // Sales members briefly land on a disallowed route while the redirect
   // queue ticks; show the splash instead of flashing un-permitted content.
   if (isSalesMember(auth) && !isPathAllowedForSalesMember(pathname)) {
-    return <NyraLoader />;
+    return <AppLoader />;
   }
 
   return (

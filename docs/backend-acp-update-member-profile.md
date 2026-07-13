@@ -36,7 +36,7 @@ Content-Type: application/json
 
 {
   "name": "Ravi Kumar",            // optional
-  "email": "ravi@nyra.ai",         // optional — login identifier, see below
+  "email": "ravi@myteamflow.com",         // optional — login identifier, see below
   "phone": "+91 90000 00010",      // optional
   "sprint_target": 12000,          // optional, positive integer (₹ as the rest of the program)
   "revenue_target": 125000         // optional, positive integer
@@ -151,7 +151,7 @@ shot — same envelope and shape as `GET /acp/members/:memberId`:
   "data": {
     "id": "384761b9-ce2b-41fc-873b-76c02035e24e",
     "name": "Ravi Kumar",
-    "email": "ravi@nyra.ai",
+    "email": "ravi@myteamflow.com",
     "phone": "+91 90000 00010",
     "joined_at": "2026-06-02T00:00:00Z",
     "ending_at": "2026-08-02T00:00:00Z",
@@ -234,7 +234,7 @@ curl -X PATCH "$BASE/api/v1/sales/acp/members/$MEMBER_ID" \
 curl -X PATCH "$BASE/api/v1/sales/acp/members/$MEMBER_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"email":"ravi.kumar@nyra.ai"}'
+  -d '{"email":"ravi.kumar@myteamflow.com"}'
 # Expect: 200; both acp_members.email and users.email now hold the lowercased value.
 
 # Then sign in as the rep with the new email — should succeed.
@@ -262,13 +262,13 @@ curl -i -X PATCH "$BASE/api/v1/sales/acp/members/$MEMBER_ID" \
 curl -i -X PATCH "$BASE/api/v1/sales/acp/members/$MEMBER_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"email":"someone-else-already@nyra.ai"}'
+  -d '{"email":"someone-else-already@myteamflow.com"}'
 
 # Self-no-op: sending the rep's own current email (any case) → 200, not 409.
 curl -i -X PATCH "$BASE/api/v1/sales/acp/members/$MEMBER_ID" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"email":"RAVI.KUMAR@NYRA.AI"}'
+  -d '{"email":"RAVI.KUMAR@MYTEAMFLOW.COM"}'
 
 # Forbidden field → 400.
 curl -i -X PATCH "$BASE/api/v1/sales/acp/members/$MEMBER_ID" \

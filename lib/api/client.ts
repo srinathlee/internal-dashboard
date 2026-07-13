@@ -1,18 +1,18 @@
 /**
- * Central HTTP client for the NYRA Sales API.
+ * Central HTTP client for the MyTeamFlow API.
  *
- * - Reads base URL from NEXT_PUBLIC_API_BASE_URL (defaults to hcs.nyraai.io).
+ * - Reads base URL from NEXT_PUBLIC_API_BASE_URL (defaults to the local mock server).
  * - Injects `Authorization: Bearer <jwt>` from the auth token store.
  * - Normalizes the `{ data: ... }` envelope used by the backend.
  * - Throws an `ApiError` with status + parsed body on non-2xx responses.
  */
 
-// Local mock backend (see server/). The old hosted API (server.nyraai.io)
-// is not under our control and is unreachable, so it is no longer the default.
+// Local MyTeamFlow mock backend (see server/). The old hosted API is not
+// under our control and is unreachable, so it is no longer the default.
 const DEFAULT_BASE_URL = "http://localhost:4000";
 
-export const TOKEN_STORAGE_KEY = "nyra-dashboard:auth-token";
-export const REFRESH_TOKEN_STORAGE_KEY = "nyra-dashboard:refresh-token";
+export const TOKEN_STORAGE_KEY = "myteamflow:auth-token";
+export const REFRESH_TOKEN_STORAGE_KEY = "myteamflow:refresh-token";
 
 export class ApiError extends Error {
   constructor(
@@ -182,7 +182,7 @@ async function apiRequestImpl<T>(
   }
   if (token && !opts.skipAuth) headers["Authorization"] = `Bearer ${token}`;
 
-  // server.nyraai.io uses HttpOnly cookie auth (login sets a cookie via
+  // The backend may use HttpOnly cookie auth (login sets a cookie via
   // Set-Cookie, every subsequent request reads it back). `credentials:
   // "include"` is required so the browser sends the cookie. The server
   // returns `Access-Control-Allow-Credentials: true` + `Vary: Origin` to

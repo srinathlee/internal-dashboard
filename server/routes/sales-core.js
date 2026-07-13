@@ -18,7 +18,7 @@ router.get("/api/v1/sales/teams/config", (req, res) =>
     id: "sales",
     name: "Sales Team",
     color: "#7C6CF6",
-    description: "NYRA field sales team",
+    description: "MyTeamFlow field sales team",
     metrics: [
       { key: "revenue", label: "Revenue", unit: "currency", format: "integer", aggregation: "sum", betterWhen: "higher", currency: "INR" },
       { key: "leads", label: "Leads Added", unit: "count", format: "integer", aggregation: "sum", betterWhen: "higher" },
@@ -171,7 +171,7 @@ router.post("/api/v1/sales/teams/:teamId/reps", (req, res) => {
 router.post("/api/v1/sales/subadmins/:userId/resend-welcome-email", (req, res) =>
   ok(res, {
     user_id: req.params.userId,
-    email: { sent: true, to: store.accounts.find((a) => a.id === req.params.userId)?.email ?? "unknown@nyraai.io", message_id: uid("mail"), sent_at: nowIso() },
+    email: { sent: true, to: store.accounts.find((a) => a.id === req.params.userId)?.email ?? "unknown@myteamflow.com", message_id: uid("mail"), sent_at: nowIso() },
     password_rotated: Boolean((req.body ?? {}).reset_password),
   }),
 );

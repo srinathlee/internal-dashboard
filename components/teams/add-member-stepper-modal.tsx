@@ -577,7 +577,7 @@ function RepDetailsStep({
             type="email"
             value={email}
             onChange={(e) => onEmail(e.target.value)}
-            placeholder="arjun@nyra.ai"
+            placeholder="arjun@myteamflow.com"
             className={cn("pl-9", errors.email && fieldErrorClass)}
             aria-invalid={errors.email ? true : undefined}
           />

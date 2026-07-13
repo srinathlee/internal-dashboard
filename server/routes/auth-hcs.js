@@ -239,7 +239,7 @@ router.post("/api/upload", (req, res) => {
   const folder = req.query.folder || "org-assets";
   req.resume(); // drain the multipart stream
   req.on("end", () => {
-    res.json({ success: true, url: `https://mock-cdn.nyraai.local/${folder}/${uid("file")}.png`, file_name: "upload.png", file_type: "image/png", size: 12345 });
+    res.json({ success: true, url: `https://mock-cdn.myteamflow.local/${folder}/${uid("file")}.png`, file_name: "upload.png", file_type: "image/png", size: 12345 });
   });
 });
 

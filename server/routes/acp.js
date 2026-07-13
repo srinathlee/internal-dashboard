@@ -200,7 +200,7 @@ router.post(`${BASE}/me/daily-logs/audio`, (req, res) => {
       };
       logs.unshift(log);
     }
-    log.audio_url = "https://mock-cdn.nyraai.local/acp-audio/daily-log.webm";
+    log.audio_url = "https://mock-cdn.myteamflow.local/acp-audio/daily-log.webm";
     log.audio_filename = "daily-log.webm";
     log.audio_duration = "0:42";
     res.json({ success: true, data: log });

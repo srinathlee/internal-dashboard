@@ -25,8 +25,8 @@ import { Badge } from "@/components/ui/badge";
 import { NAV_GROUPS, NAV_ITEMS, type NavItem } from "./nav-config";
 import { Logo } from "./logo";
 
-const COLLAPSE_STORAGE_KEY = "nyra-dashboard:sidebar-collapsed";
-const GROUPS_COLLAPSED_STORAGE_KEY = "nyra-dashboard:sidebar-groups-collapsed";
+const COLLAPSE_STORAGE_KEY = "myteamflow:sidebar-collapsed";
+const GROUPS_COLLAPSED_STORAGE_KEY = "myteamflow:sidebar-groups-collapsed";
 
 /**
  * Per-group collapse state persisted to localStorage. true = collapsed.

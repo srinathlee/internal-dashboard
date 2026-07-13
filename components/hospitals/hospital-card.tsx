@@ -37,7 +37,7 @@ interface HospitalCardProps {
  * Hospital row matching the screenshot:
  *   chevron · icon · ( name + address + chip row )
  *
- * Chips: Admins, Users, Branches, Created by, NYRA AI Number.
+ * Chips: Admins, Users, Branches, Created by, MyTeamFlow Number.
  */
 export function HospitalCard({
   hospital,
@@ -139,8 +139,8 @@ export function HospitalCard({
             icon={Hash}
             label={
               <>
-                <span className="text-zinc-500">NYRA AI Number</span>{" "}
-                <span className="font-mono">{hospital.nyraAiNumber}</span>
+                <span className="text-zinc-500">MyTeamFlow Number</span>{" "}
+                <span className="font-mono">{hospital.aiNumber}</span>
               </>
             }
           />

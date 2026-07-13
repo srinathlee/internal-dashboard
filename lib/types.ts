@@ -272,5 +272,5 @@ export interface Hospital {
   /** Display name of the user who onboarded the hospital (as returned by the API). */
   created_by?: string | null;
   /** Identifier shown on each card — phone-shaped 10 digit number. */
-  nyraAiNumber: string;
+  aiNumber: string;
 }

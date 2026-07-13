@@ -15,7 +15,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { getInitials, roleLabel } from "@/lib/format";
 
-const NOTIFICATION_PREFS_KEY = "nyra-dashboard:notifications";
+const NOTIFICATION_PREFS_KEY = "myteamflow:notifications";
 
 interface NotificationPrefs {
   dailyDigest: boolean;

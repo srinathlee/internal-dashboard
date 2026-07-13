@@ -141,7 +141,7 @@ export function InviteMemberModal({
               autoComplete="email"
               aria-invalid={Boolean(errors.email)}
               aria-describedby={errors.email ? "invite-email-error" : undefined}
-              placeholder="asha.pillai@nyra.ai"
+              placeholder="asha.pillai@myteamflow.com"
             />
           </Field>
 

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 170" role="img" aria-label="MyTeamFlow">
+  <defs>
+    <linearGradient id="mtfLight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3CB9F8"/>
+      <stop offset="1" stop-color="#0E8FD8"/>
+    </linearGradient>
+    <linearGradient id="mtfLight2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#29ABF2"/>
+      <stop offset="1" stop-color="#0B7FC7"/>
+    </linearGradient>
+    <linearGradient id="mtfDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#123C5F"/>
+      <stop offset="1" stop-color="#071E30"/>
+    </linearGradient>
+    <linearGradient id="mtfDark2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0E4A73"/>
+      <stop offset="1" stop-color="#0A2A45"/>
+    </linearGradient>
+  </defs>
+  <!-- faceted M: light outer left leg, dark inner facet, dark left diagonal,
+       light right diagonal, dark right leg with light outer edge -->
+  <polygon points="42,8 70,8 56,162 26,146" fill="url(#mtfLight)"/>
+  <polygon points="70,8 82,8 68,162 56,162" fill="url(#mtfDark2)"/>
+  <polygon points="82,8 100,52 100,112" fill="url(#mtfDark)"/>
+  <polygon points="118,8 100,52 100,112" fill="url(#mtfLight2)"/>
+  <polygon points="118,8 146,8 162,150 132,162" fill="url(#mtfDark)"/>
+  <polygon points="146,8 158,8 174,146 162,150" fill="url(#mtfLight)"/>
+</svg>

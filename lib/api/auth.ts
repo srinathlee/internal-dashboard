@@ -1,7 +1,7 @@
 /**
  * Authentication endpoints.
  *
- * Verified live against https://server.nyraai.io:
+ * Backend contract:
  *   POST /api/auth/login   { email, password } -> { message, user, token? }
  *   GET  /api/auth/me                          -> { user }
  *
@@ -51,7 +51,7 @@ export interface AuthMe {
   branch_id?: string | null;
 }
 
-const ME_STORAGE_KEY = "nyra-dashboard:auth-me";
+const ME_STORAGE_KEY = "myteamflow:auth-me";
 
 /**
  * Cache the current user payload in localStorage so the next page load

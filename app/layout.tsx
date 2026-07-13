@@ -10,8 +10,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "NYRA Internal Dashboard",
-  description: "Performance, teams, and operations for NYRA AI.",
+  title: "MyTeamFlow",
+  description: "Performance, teams, and operations command center.",
 };
 
 export default function RootLayout({

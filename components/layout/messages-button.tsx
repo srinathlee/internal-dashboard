@@ -29,7 +29,7 @@ export function MessagesButton() {
   return <MessagesInbox userId={auth.user.id} />;
 }
 
-const SEEN_PREFIX = "nyra:acp-msgs-seen:";
+const SEEN_PREFIX = "myteamflow:acp-msgs-seen:";
 
 function readSeen(memberId: string): string | null {
   if (typeof window === "undefined") return null;

@@ -711,7 +711,7 @@ function Step2Plan({
 
       <Card className="mt-5 border-violet-200 bg-violet-50/40 p-3 text-xs text-zinc-700 dark:border-violet-900/40 dark:bg-violet-950/20 dark:text-zinc-300">
         Choose a plan for this hospital. You can skip this and assign a plan
-        later. All plans include Nyra AI voice assistant capabilities.
+        later. All plans include MyTeamFlow AI voice assistant capabilities.
       </Card>
 
       <div className="mt-5 flex justify-center">

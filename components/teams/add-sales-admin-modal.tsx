@@ -170,7 +170,7 @@ export function AddSalesAdminModal({
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="arjun@nyra.ai"
+                placeholder="arjun@myteamflow.com"
               />
             </Field>
             <Field id="sa-phone" label="Phone" required>

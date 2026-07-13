@@ -175,7 +175,7 @@ router.post("/api/v1/sales/leads/:id/activities", (req, res) => {
 router.post("/api/v1/sales/leads/:id/voice-note", (req, res) => {
   req.resume();
   req.on("end", () =>
-    res.json({ success: true, data: { url: "https://mock-cdn.nyraai.local/voice-notes/note.webm", duration_seconds: 34 } }),
+    res.json({ success: true, data: { url: "https://mock-cdn.myteamflow.local/voice-notes/note.webm", duration_seconds: 34 } }),
   );
 });
 

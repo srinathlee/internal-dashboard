@@ -50,7 +50,7 @@ export function teamDotClass(teamId: TeamId | string | null): string {
  *      refetched rows match.
  *   2. Auth user's name, but skip the "User" placeholder that
  *      mapAuthMeToUser falls back to when /auth/me omits the name field.
- *   3. Local-part of the auth user's email (`rini@nyra.ai` -> `rini`).
+ *   3. Local-part of the auth user's email (`rini@myteamflow.com` -> `rini`).
  *   4. ownerName.
  *   5. Empty — the timeline row's outer fallback ("Unknown") takes over.
  */

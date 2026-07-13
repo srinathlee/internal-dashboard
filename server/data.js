@@ -1,5 +1,5 @@
 /**
- * In-memory dummy data store for the NYRA mock backend.
+ * In-memory dummy data store for the MyTeamFlow mock backend.
  * Everything lives in `store`; restarting the server resets all data.
  */
 
@@ -71,7 +71,7 @@ const accounts = [
   {
     id: "u-admin-1",
     name: "Anita Rao",
-    email: "anita@nyraai.io",
+    email: "anita@myteamflow.com",
     password: "password",
     apiRole: "SALES_ADMIN",
     surfaceRole: "admin",
@@ -84,7 +84,7 @@ const accounts = [
   {
     id: "u-rep-1",
     name: "Ravi Kumar",
-    email: "ravi@nyraai.io",
+    email: "ravi@myteamflow.com",
     password: "password",
     apiRole: "SALES_SUBADMIN",
     surfaceRole: "member",
@@ -97,7 +97,7 @@ const accounts = [
   {
     id: "u-rep-2",
     name: "Priya Sharma",
-    email: "priya@nyraai.io",
+    email: "priya@myteamflow.com",
     password: "password",
     apiRole: "SALES_SUBADMIN",
     surfaceRole: "member",
@@ -110,7 +110,7 @@ const accounts = [
   {
     id: "u-rep-3",
     name: "Arjun Mehta",
-    email: "arjun@nyraai.io",
+    email: "arjun@myteamflow.com",
     password: "password",
     apiRole: "SALES_SUBADMIN",
     surfaceRole: "member",
@@ -123,7 +123,7 @@ const accounts = [
   {
     id: "u-rep-4",
     name: "Sneha Patil",
-    email: "sneha@nyraai.io",
+    email: "sneha@myteamflow.com",
     password: "password",
     apiRole: "SALES_SUBADMIN",
     surfaceRole: "member",
@@ -136,7 +136,7 @@ const accounts = [
   {
     id: "u-rep-5",
     name: "Vikram Singh",
-    email: "vikram@nyraai.io",
+    email: "vikram@myteamflow.com",
     password: "password",
     apiRole: "SALES_SUBADMIN",
     surfaceRole: "member",
@@ -249,7 +249,7 @@ for (const lead of leads) {
       id: uid("act"),
       lead_id: lead.id,
       kind: "call",
-      body: `Spoke with ${lead.doctor_name} about NYRA onboarding.`,
+      body: `Spoke with ${lead.doctor_name} about MyTeamFlow onboarding.`,
       author: { id: lead.owner.id, name: lead.owner.name, initials: lead.owner.initials },
       from_stage: null,
       to_stage: null,
@@ -454,7 +454,7 @@ const distanceByRep = {
 const hospitals = [
   {
     id: "hosp-1",
-    name: "NYRA Demo Hospital",
+    name: "MyTeamFlow Demo Hospital",
     email: "admin@demohospital.in",
     phone: "+91 4023456789",
     emergency_phone: "+91 4023456790",
@@ -787,12 +787,12 @@ function makeAcpMember(o) {
 }
 
 const acpMembers = [
-  makeAcpMember({ name: "Kiran Rao", email: "kiran.acp@nyraai.io", batch_id: "batch-1", joined_at: daysAgo(40), tag: "active", sprint_revenue: 12000, subscription_revenue: 0, current_review: "working_fine", lead_count: 14 }),
-  makeAcpMember({ name: "Divya Menon", email: "divya.acp@nyraai.io", batch_id: "batch-1", joined_at: daysAgo(40), tag: "close_monitoring", sprint_revenue: 6000, subscription_revenue: 0, current_review: "observation", lead_count: 9 }),
-  makeAcpMember({ name: "Rahul Jain", email: "rahul.acp@nyraai.io", batch_id: "batch-1", joined_at: daysAgo(38), tag: "at_risk", sprint_revenue: 2000, subscription_revenue: 0, current_review: "retrain", lead_count: 4, note: "Struggles with objection handling." }),
-  makeAcpMember({ name: "Sana Sheikh", email: "sana.acp@nyraai.io", batch_id: "batch-1", joined_at: daysAgo(36), tag: "converted", sprint_revenue: 15000, subscription_revenue: 120000, current_review: "working_fine", lead_count: 20 }),
-  makeAcpMember({ name: "Mohan Das", email: "mohan.acp@nyraai.io", batch_id: "batch-2", joined_at: daysAgo(15), tag: "active", sprint_revenue: 4000, subscription_revenue: 0, current_review: null, lead_count: 6 }),
-  makeAcpMember({ name: "Leela Krishnan", email: "leela.acp@nyraai.io", batch_id: "batch-2", joined_at: daysAgo(14), tag: "firing_zone", sprint_revenue: 0, subscription_revenue: 0, current_review: "retrain", lead_count: 1 }),
+  makeAcpMember({ name: "Kiran Rao", email: "kiran.acp@myteamflow.com", batch_id: "batch-1", joined_at: daysAgo(40), tag: "active", sprint_revenue: 12000, subscription_revenue: 0, current_review: "working_fine", lead_count: 14 }),
+  makeAcpMember({ name: "Divya Menon", email: "divya.acp@myteamflow.com", batch_id: "batch-1", joined_at: daysAgo(40), tag: "close_monitoring", sprint_revenue: 6000, subscription_revenue: 0, current_review: "observation", lead_count: 9 }),
+  makeAcpMember({ name: "Rahul Jain", email: "rahul.acp@myteamflow.com", batch_id: "batch-1", joined_at: daysAgo(38), tag: "at_risk", sprint_revenue: 2000, subscription_revenue: 0, current_review: "retrain", lead_count: 4, note: "Struggles with objection handling." }),
+  makeAcpMember({ name: "Sana Sheikh", email: "sana.acp@myteamflow.com", batch_id: "batch-1", joined_at: daysAgo(36), tag: "converted", sprint_revenue: 15000, subscription_revenue: 120000, current_review: "working_fine", lead_count: 20 }),
+  makeAcpMember({ name: "Mohan Das", email: "mohan.acp@myteamflow.com", batch_id: "batch-2", joined_at: daysAgo(15), tag: "active", sprint_revenue: 4000, subscription_revenue: 0, current_review: null, lead_count: 6 }),
+  makeAcpMember({ name: "Leela Krishnan", email: "leela.acp@myteamflow.com", batch_id: "batch-2", joined_at: daysAgo(14), tag: "firing_zone", sprint_revenue: 0, subscription_revenue: 0, current_review: "retrain", lead_count: 1 }),
 ];
 
 const acpDailyLogs = {};
@@ -948,8 +948,8 @@ const store = {
       id: "sales",
       name: "Sales Team",
       color: "#7C6CF6",
-      description: "NYRA field sales team",
-      admin: { user_id: "u-admin-1", name: "Anita Rao", email: "anita@nyraai.io", role: "SALES_ADMIN", team_id: "sales", status: "ACTIVE", created_at: daysAgo(320) },
+      description: "MyTeamFlow field sales team",
+      admin: { user_id: "u-admin-1", name: "Anita Rao", email: "anita@myteamflow.com", role: "SALES_ADMIN", team_id: "sales", status: "ACTIVE", created_at: daysAgo(320) },
       member_count: reps.length,
       created_at: daysAgo(365),
       updated_at: daysAgo(10),

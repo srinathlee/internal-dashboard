@@ -24,7 +24,7 @@ and keep all derived counts correct.
 The dashboard's **Remove from program** action (rep profile → Danger zone) sends:
 
 ```
-DELETE https://server.nyraai.io/api/v1/sales/acp/members/:memberId
+DELETE http://localhost:4000/api/v1/sales/acp/members/:memberId
 ```
 
 The server responds **`404 Not Found`** with a small JSON body — even though the
@@ -137,7 +137,7 @@ router.delete("/acp/members/:memberId", requireSalesAdmin, async (req, res) => {
 ```bash
 curl -i -X DELETE \
   --cookie "$SESSION_COOKIE" \
-  https://server.nyraai.io/api/v1/sales/acp/members/<memberId>
+  http://localhost:4000/api/v1/sales/acp/members/<memberId>
 # First call  -> 200/204
 # Second call -> 404 (already removed; acceptable)
 ```

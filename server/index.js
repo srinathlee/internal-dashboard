@@ -1,5 +1,5 @@
 /**
- * NYRA mock backend — implements every endpoint the internal dashboard calls,
+ * MyTeamFlow mock backend — implements every endpoint the internal dashboard calls,
  * backed by in-memory dummy data (see data.js). No database; restart to reset.
  *
  *   cd server && npm install && npm start   ->  http://localhost:4000
@@ -27,7 +27,7 @@ app.use((req, res, next) => {
 });
 
 app.get("/", (req, res) =>
-  res.json({ name: "nyra-mock-server", status: "ok", docs: "All dashboard endpoints are served under /api/*" }),
+  res.json({ name: "myteamflow-mock-server", status: "ok", docs: "All dashboard endpoints are served under /api/*" }),
 );
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
@@ -48,6 +48,6 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`NYRA mock server listening on http://localhost:${PORT}`);
+  console.log(`MyTeamFlow mock server listening on http://localhost:${PORT}`);
   console.log("Login with any seeded email (e.g. ram@gmail.com) and any password.");
 });

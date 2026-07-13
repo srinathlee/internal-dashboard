@@ -59,7 +59,7 @@ function severityVisual(severity: AcpAdminAlert["severity"]): {
 // rule fires — the new alert has a new key and shows again.
 // ---------------------------------------------------------------------------
 
-const DISMISS_PREFIX = "nyra:acp-batch-alerts-dismissed:";
+const DISMISS_PREFIX = "myteamflow:acp-batch-alerts-dismissed:";
 
 function dismissKey(repId: string, alertId: string): string {
   return `${repId}:${alertId}`;

@@ -192,7 +192,7 @@ export function AddAssociateModal({
                   setForm((f) => ({ ...f, email: e.target.value }))
                 }
                 autoComplete="email"
-                placeholder="associate.id@nyra.ai"
+                placeholder="associate.id@myteamflow.com"
                 aria-invalid={Boolean(errors.email)}
               />
             </PillField>

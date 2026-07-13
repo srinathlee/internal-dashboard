@@ -411,7 +411,7 @@ function OverviewTab({
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <div className="space-y-4 lg:col-span-2">
         <BasicInformationCard hospital={hospital} />
-        <NyraAINumberCard hospital={hospital} />
+        <AiNumberCard hospital={hospital} />
         <BranchesCard
           branches={branchList}
           isLoading={branches.isLoading}
@@ -689,17 +689,17 @@ function BasicInformationCard({ hospital }: { hospital: Hospital }) {
   );
 }
 
-// ---------- Nyra AI number ----------
+// ---------- MyTeamFlow number ----------
 
-function NyraAINumberCard({ hospital }: { hospital: Hospital }) {
+function AiNumberCard({ hospital }: { hospital: Hospital }) {
   const h = hospital as Hospital & {
     inbound_number?: string | null;
     outbound_number?: string | null;
   };
-  const inbound = h.inbound_number ?? hospital.nyraAiNumber ?? null;
-  const outbound = h.outbound_number ?? hospital.nyraAiNumber ?? null;
+  const inbound = h.inbound_number ?? hospital.aiNumber ?? null;
+  const outbound = h.outbound_number ?? hospital.aiNumber ?? null;
   return (
-    <SectionCard icon={Phone} title="Nyra AI number" iconTone="violet">
+    <SectionCard icon={Phone} title="MyTeamFlow number" iconTone="violet">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Detail
           icon={Hash}

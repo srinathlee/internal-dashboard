@@ -1100,7 +1100,7 @@ const BATCH_SEEDS: BatchSeed[] = [
       {
         id: "acp-arjun",
         name: "Arjun Kapoor",
-        email: "arjun@nyra.ai",
+        email: "arjun@myteamflow.com",
         phone: "+91 90000 00001",
         joinedDaysAgo: 13,
         tag: "active",
@@ -1112,7 +1112,7 @@ const BATCH_SEEDS: BatchSeed[] = [
       {
         id: "acp-priya",
         name: "Priya Menon",
-        email: "priya@nyra.ai",
+        email: "priya@myteamflow.com",
         phone: "+91 90000 00002",
         joinedDaysAgo: 12,
         tag: "active",
@@ -1124,7 +1124,7 @@ const BATCH_SEEDS: BatchSeed[] = [
       {
         id: "acp-swathi",
         name: "Swathi Iyer",
-        email: "swathi@nyra.ai",
+        email: "swathi@myteamflow.com",
         phone: "+91 90000 00003",
         joinedDaysAgo: 10,
         tag: "close_monitoring",
@@ -1136,7 +1136,7 @@ const BATCH_SEEDS: BatchSeed[] = [
       {
         id: "acp-neha",
         name: "Neha Reddy",
-        email: "neha@nyra.ai",
+        email: "neha@myteamflow.com",
         phone: "+91 90000 00004",
         joinedDaysAgo: 11,
         tag: "close_monitoring",
@@ -1148,7 +1148,7 @@ const BATCH_SEEDS: BatchSeed[] = [
       {
         id: "acp-vikram",
         name: "Vikram Das",
-        email: "vikram@nyra.ai",
+        email: "vikram@myteamflow.com",
         phone: "+91 90000 00005",
         joinedDaysAgo: 18,
         tag: "fired",
@@ -1167,7 +1167,7 @@ const BATCH_SEEDS: BatchSeed[] = [
       {
         id: "acp-ravi",
         name: "Ravi Kumar",
-        email: "ravi@nyra.ai",
+        email: "ravi@myteamflow.com",
         phone: "+91 90000 00010",
         joinedDaysAgo: 16,
         tag: "active",
@@ -1179,7 +1179,7 @@ const BATCH_SEEDS: BatchSeed[] = [
       {
         id: "acp-meera",
         name: "Meera Nair",
-        email: "meera@nyra.ai",
+        email: "meera@myteamflow.com",
         phone: "+91 90000 00011",
         joinedDaysAgo: 9,
         tag: "active",

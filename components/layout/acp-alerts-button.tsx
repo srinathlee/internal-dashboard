@@ -100,7 +100,7 @@ function AcpAlertsGate({ userId }: { userId: string }) {
   );
 }
 
-const SEEN_PREFIX = "nyra:acp-alerts-seen:";
+const SEEN_PREFIX = "myteamflow:acp-alerts-seen:";
 
 function readSeen(userId: string): string | null {
   if (typeof window === "undefined") return null;

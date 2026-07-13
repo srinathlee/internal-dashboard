@@ -11,7 +11,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       defaultTheme="system"
       enableSystem
       disableTransitionOnChange
-      storageKey="nyra-dashboard:theme"
+      storageKey="myteamflow:theme"
     >
       <AuthProvider>{children}</AuthProvider>
       <ThemedToaster />

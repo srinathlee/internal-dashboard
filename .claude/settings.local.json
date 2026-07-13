@@ -21,7 +21,22 @@
       "Bash(node -e ' *)",
       "Bash(node index.js)",
       "Bash(curl -s http://localhost:4000/health)",
-      "Bash(curl -s -X POST http://localhost:4000/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"ram@gmail.com\",\"password\":\"secret1\"}')"
+      "Bash(curl -s -X POST http://localhost:4000/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"ram@gmail.com\",\"password\":\"secret1\"}')",
+      "Bash(sed -i 's/nyra-dashboard:/myteamflow:/g' app/providers.tsx components/layout/sidebar.tsx components/settings/settings-screen.tsx lib/api/auth.ts lib/api/client.ts)",
+      "Bash(sed -i 's/\"nyra:acp-/\"myteamflow:acp-/g' components/layout/acp-alerts-button.tsx components/layout/messages-button.tsx components/sales/accelerator/admin-alert-panel.tsx)",
+      "Bash(xargs sed -i 's/@nyra\\\\.ai/@myteamflow.com/g')",
+      "Bash(xargs sed -i 's/@nyraai\\\\.io/@myteamflow.com/g')",
+      "Bash(xargs sed -i 's/mock-cdn\\\\.nyraai\\\\.local/mock-cdn.myteamflow.local/g')",
+      "Bash(sed -i 's/nyraAiNumber/aiNumber/g' lib/types.ts components/hospitals/hospital-card.tsx components/hospitals/hospital-detail-screen.tsx)",
+      "Bash(sed -i 's/NyraAINumberCard/AiNumberCard/g' components/hospitals/hospital-detail-screen.tsx)",
+      "Bash(sed -i 's/NYRA AI Number/MyTeamFlow Number/g' components/hospitals/hospital-card.tsx)",
+      "Bash(sed -i 's/Nyra AI number/MyTeamFlow number/g; s/Nyra AI number ----------/MyTeamFlow number ----------/g' components/hospitals/hospital-detail-screen.tsx)",
+      "Bash(sed -i 's/Nyra AI voice assistant/MyTeamFlow AI voice assistant/g' components/hospitals/create-hospital-modal.tsx)",
+      "Bash(sed -i 's/Central HTTP client for the NYRA Sales API./Central HTTP client for the MyTeamFlow API./; s|Reads base URL from NEXT_PUBLIC_API_BASE_URL \\(defaults to hcs.nyraai.io\\).|Reads base URL from NEXT_PUBLIC_API_BASE_URL \\(defaults to the local mock server\\).|' lib/api/client.ts)",
+      "Bash(sed -i 's/NYRA mock backend/MyTeamFlow mock backend/g' server/data.js server/index.js)",
+      "Bash(curl -s http://localhost:4000/)",
+      "Bash(curl -s -X POST http://localhost:4000/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"anita@myteamflow.com\",\"password\":\"x\"}')",
+      "Bash(curl -s -X POST http://localhost:4000/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"ravi@myteamflow.com\",\"password\":\"demo1234\"}')"
     ]
   }
 }

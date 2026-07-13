@@ -1351,7 +1351,7 @@ function estimateMrr(_board: ScorecardBoard, rep: LeaderboardEntry | null): numb
 }
 
 function emailFromName(name: string): string {
-  return `${name.toLowerCase().replace(/\s+/g, ".")}@nyra.ai`;
+  return `${name.toLowerCase().replace(/\s+/g, ".")}@myteamflow.com`;
 }
 
 function periodChipLabel(period: PeriodState): string {
