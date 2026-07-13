@@ -7,7 +7,9 @@
  * - Throws an `ApiError` with status + parsed body on non-2xx responses.
  */
 
-const DEFAULT_BASE_URL = "https://server.nyraai.io";
+// Local mock backend (see server/). The old hosted API (server.nyraai.io)
+// is not under our control and is unreachable, so it is no longer the default.
+const DEFAULT_BASE_URL = "http://localhost:4000";
 
 export const TOKEN_STORAGE_KEY = "nyra-dashboard:auth-token";
 export const REFRESH_TOKEN_STORAGE_KEY = "nyra-dashboard:refresh-token";

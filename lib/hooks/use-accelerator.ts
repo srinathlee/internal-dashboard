@@ -33,6 +33,7 @@ import {
   type CreateBatchInput,
   type UpdateAcpMemberInput,
 } from "@/lib/api/sales-accelerator";
+import { listSubadmins } from "@/lib/api/sales-subadmins";
 
 import { useAsync } from "./use-async";
 
@@ -111,6 +112,50 @@ export function useAcpEnrolledEmails() {
       }
     }
     return emails;
+  }, []);
+}
+
+/**
+ * Excluded sales `user_id`s for the main dashboard / team-overview lists.
+ *
+ * The overview rows (leaderboard, conversion-by-rep, reps-at-risk,
+ * stale-by-rep, roster) are keyed by `user_id`, not email — so the
+ * email-based {@link useAcpEnrolledEmails} can't filter them directly. This
+ * joins the ACP "still in program" emails against the subadmin directory
+ * (which carries both `id` and `email`) to resolve the matching `user_id`s to
+ * hide. Interim client-side filter — the durable fix is the server-side
+ * `WHERE NOT EXISTS` predicate in docs/backend-acp-hide-from-sales-lists.md,
+ * after which this set simply stops matching anything.
+ *
+ * `data` is the `Set<string>` of user_ids once loaded, or `null` while loading
+ * / on error. Callers must treat `null` as "no exclusions yet" so an ACP (or
+ * subadmin) fetch failure never accidentally hides a normal rep. Admin-only.
+ */
+export function useAcpExcludedUserIds() {
+  return useAsync<Set<string>>(async (signal) => {
+    const [batches, subs] = await Promise.all([
+      listAcpBatches(signal),
+      listSubadmins({ limit: 500 }, signal),
+    ]);
+    const lists = await Promise.all(
+      batches.map((b) => listAcpMembers(b.id, signal)),
+    );
+    const acpEmails = new Set<string>();
+    for (const members of lists) {
+      for (const m of members) {
+        if (m.tag !== "converted" && m.email) {
+          acpEmails.add(m.email.trim().toLowerCase());
+        }
+      }
+    }
+    const ids = new Set<string>();
+    if (acpEmails.size === 0) return ids;
+    for (const u of subs.sales_subadmins) {
+      if (u.email && acpEmails.has(u.email.trim().toLowerCase())) {
+        ids.add(u.id);
+      }
+    }
+    return ids;
   }, []);
 }
 

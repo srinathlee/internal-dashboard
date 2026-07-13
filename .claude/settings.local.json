@@ -18,7 +18,10 @@
       "Bash(echo \"EXIT=$?\")",
       "Bash(node scripts/extract-logo.mjs)",
       "Bash(node -e \"for \\(const d of ['2026-05-22','2026-05-25','2026-05-26','2026-05-27','2026-05-28','2026-05-29','2026-06-01']\\) { const dt=new Date\\(d+'T00:00:00'\\); console.log\\(d, dt.toLocaleDateString\\('en-US',{weekday:'long'}\\)\\); }\")",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(node index.js)",
+      "Bash(curl -s http://localhost:4000/health)",
+      "Bash(curl -s -X POST http://localhost:4000/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"ram@gmail.com\",\"password\":\"secret1\"}')"
     ]
   }
 }

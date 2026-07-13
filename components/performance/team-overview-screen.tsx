@@ -39,6 +39,7 @@ import {
   useTeamRoster,
 } from "@/lib/hooks/use-overview";
 import { useTeamPerformance } from "@/lib/hooks/use-team-performance";
+import { useAcpExcludedUserIds } from "@/lib/hooks/use-accelerator";
 import { exportTeamData } from "@/lib/api/sales-overview";
 import { formatCurrency, formatNumber, timeAgo } from "@/lib/format-metric";
 import { getInitials } from "@/lib/format";
@@ -81,6 +82,55 @@ export function TeamOverviewScreen() {
     filter: activityFilter,
   });
 
+  // Accelerator trainees are backed by normal sales logins, so they leak into
+  // every per-rep overview list. Hide everyone still in the program (and fired
+  // reps); only those graduated to full-time (`tag: converted`) belong here.
+  // Interim client-side filter — see docs/backend-acp-hide-from-sales-lists.md.
+  // `null` (loading/error) means "no exclusions" so a failed fetch never hides
+  // real staff. NOTE: the KPI strip aggregates come straight from the backend
+  // and still count trainees until the server-side filter ships.
+  const acpExcluded = useAcpExcludedUserIds();
+
+  // Overview lists with in-program ACP trainees removed. The reps-at-risk and
+  // stale-leads counts are recomputed from the surviving rows so the card
+  // badges stay consistent with what's listed beneath them.
+  const filteredOverview = useMemo(() => {
+    const d = overview.data;
+    if (!d) return null;
+    const ex = acpExcluded.data;
+    if (!ex || ex.size === 0) return d;
+    const keep = (uid: string) => !ex.has(uid);
+    const atRisk = d.team_health.reps_at_risk.items.filter((r) =>
+      keep(r.user_id),
+    );
+    const staleByRep = d.team_health.stale_team_leads.by_rep.filter((r) =>
+      keep(r.user_id),
+    );
+    return {
+      ...d,
+      leaderboard: d.leaderboard.filter((r) => keep(r.user_id)),
+      conversion_by_rep: {
+        ...d.conversion_by_rep,
+        rows: d.conversion_by_rep.rows.filter((r) => keep(r.user_id)),
+      },
+      team_health: {
+        ...d.team_health,
+        reps_at_risk: { count: atRisk.length, items: atRisk },
+        stale_team_leads: {
+          count: staleByRep.reduce((n, r) => n + r.count, 0),
+          by_rep: staleByRep,
+        },
+      },
+    };
+  }, [overview.data, acpExcluded.data]);
+
+  const filteredRosterRows = useMemo(() => {
+    const rows = roster.data?.rows ?? [];
+    const ex = acpExcluded.data;
+    if (!ex || ex.size === 0) return rows;
+    return rows.filter((r) => !ex.has(r.user_id));
+  }, [roster.data, acpExcluded.data]);
+
   if (!auth.isLoaded) return <Skeleton />;
 
   if (overview.isLoading && !overview.data) return <Skeleton />;
@@ -100,7 +150,7 @@ export function TeamOverviewScreen() {
     );
   }
 
-  const data = overview.data;
+  const data = filteredOverview ?? overview.data;
 
   return (
     <div className="space-y-6">
@@ -136,7 +186,7 @@ export function TeamOverviewScreen() {
       </div>
 
       <RosterCard
-        rows={roster.data?.rows ?? []}
+        rows={filteredRosterRows}
         isLoading={roster.isLoading}
         error={roster.error}
       />
